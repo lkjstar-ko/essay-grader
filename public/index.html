@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>서술형 채점기</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{--bg:#f5f4f0;--surface:#fff;--surface2:#f0efe9;--border:#e2e0d8;--border2:#ccc9be;--text:#1a1916;--text2:#6b6860;--text3:#9e9b93;--accent:#2d5a3d;--accent-light:#e8f0ea;--danger:#c0392b;--danger-bg:#fdf0ee;--success:#1d6a3e;--success-bg:#eaf4ed;--warn:#8a6a00;--warn-bg:#fdf8e8;--radius:10px;--radius-lg:14px;--shadow:0 1px 3px rgba(0,0,0,.06),0 4px 12px rgba(0,0,0,.04)}
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Noto Sans KR',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;line-height:1.6}
+  .layout{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
+  .sidebar{background:var(--surface);border-right:1px solid var(--border);padding:28px 18px;display:flex;flex-direction:column;gap:4px;position:sticky;top:0;height:100vh;overflow-y:auto}
+  .logo{font-family:'DM Mono',monospace;font-size:11px;font-weight:500;color:var(--text3);letter-spacing:.12em;text-transform:uppercase;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px}
+  .logo-dot{width:8px;height:8px;border-radius:50%;background:var(--accent)}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--radius);cursor:pointer;transition:background .15s;font-size:13px;color:var(--text2);border:none;background:none;width:100%;text-align:left}
+  .nav-item:hover{background:var(--surface2);color:var(--text)}
+  .nav-item.active{background:var(--accent-light);color:var(--accent);font-weight:500}
+  .nav-num{width:20px;height:20px;border-radius:50%;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-family:'DM Mono',monospace;font-size:10px;font-weight:500;flex-shrink:0;transition:background .15s,color .15s}
+  .nav-item.active .nav-num{background:var(--accent);color:#fff}
+  .nav-item.done .nav-num{background:var(--success-bg);color:var(--success)}
+  .sidebar-footer{margin-top:auto;padding-top:16px;border-top:1px solid var(--border);font-size:11px;color:var(--text3);line-height:1.7}
+  .main{padding:40px 48px;max-width:860px}
+  .page{display:none}.page.active{display:block}
+  .page-title{font-size:22px;font-weight:700;margin-bottom:4px}
+  .page-sub{font-size:13px;color:var(--text3);margin-bottom:28px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px 22px;margin-bottom:14px;box-shadow:var(--shadow)}
+  .card-title{font-size:11px;font-weight:500;color:var(--text3);letter-spacing:.08em;text-transform:uppercase;margin-bottom:14px}
+  label{display:block;font-size:12px;font-weight:500;color:var(--text2);margin-bottom:5px}
+  input[type=text],input[type=number],textarea{width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;font-family:'Noto Sans KR',sans-serif;background:var(--surface);color:var(--text);resize:none;transition:border-color .15s,box-shadow .15s;line-height:1.6}
+  input[type=text]:focus,input[type=number]:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(45,90,61,.08)}
+  input[type=number]{-moz-appearance:textfield}
+  .form-row{margin-bottom:14px}
+  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+  .drop-zone{border:1.5px dashed var(--border2);border-radius:var(--radius-lg);padding:28px 24px;text-align:center;cursor:pointer;transition:background .15s,border-color .15s;position:relative}
+  .drop-zone:hover,.drop-zone.over{background:var(--accent-light);border-color:var(--accent)}
+  .drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+  .drop-icon{font-size:28px;margin-bottom:6px}
+  .drop-title{font-size:14px;font-weight:500;color:var(--text);margin-bottom:3px}
+  .drop-sub{font-size:12px;color:var(--text3)}
+  .file-loaded{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--success-bg);border:1px solid #c3dfc9;border-radius:var(--radius);margin-top:10px}
+  .file-loaded-name{flex:1;font-size:13px;font-weight:500;color:var(--success);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .file-loaded-size{font-size:11px;color:var(--text3)}
+  .file-remove{background:none;border:none;cursor:pointer;color:var(--text3);font-size:16px;line-height:1}
+  .file-remove:hover{color:var(--danger)}
+  .rubric-chip{display:flex;justify-content:space-between;align-items:flex-start;padding:9px 12px;background:var(--surface2);border-radius:var(--radius);margin-bottom:6px;gap:12px}
+  .chip-name{font-size:13px;font-weight:500;color:var(--text)}
+  .chip-desc{font-size:11px;color:var(--text3);margin-top:2px}
+  .chip-range{font-size:13px;font-weight:500;color:var(--accent);white-space:nowrap;font-family:'DM Mono',monospace}
+  .score-summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
+  .score-sum-item{text-align:center;padding:10px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius)}
+  .score-sum-num{font-size:22px;font-weight:700;font-family:'DM Mono',monospace;color:var(--accent)}
+  .score-sum-lbl{font-size:11px;color:var(--text3);margin-top:2px}
+  .absent-score-box{background:var(--warn-bg);border:1px solid #edd98a;border-radius:var(--radius-lg);padding:16px 20px;margin-bottom:14px}
+  .absent-score-title{font-size:11px;font-weight:500;color:var(--warn);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px}
+  .absent-score-note{font-size:11px;color:var(--warn);margin-top:8px;line-height:1.6}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:9px 18px;border-radius:var(--radius);font-size:13px;font-weight:500;font-family:'Noto Sans KR',sans-serif;cursor:pointer;transition:background .15s,transform .1s;border:1px solid var(--border);background:var(--surface);color:var(--text)}
+  .btn:hover{background:var(--surface2)}.btn:active{transform:scale(.98)}.btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+  .btn-primary{background:var(--accent);color:#fff;border-color:var(--accent);box-shadow:0 2px 8px rgba(45,90,61,.2)}
+  .btn-primary:hover{background:#234d33}
+  .btn-success{background:var(--success);color:#fff;border-color:var(--success)}
+  .btn-success:hover{background:#145230}
+  .btn-full{width:100%}
+  .btn-row{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
+  .spinner{width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .file-list{margin-top:10px;display:flex;flex-direction:column;gap:5px;max-height:260px;overflow-y:auto}
+  .file-item{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--surface2);border-radius:var(--radius);font-size:12px}
+  .file-item-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+  .file-item-size{color:var(--text3);white-space:nowrap}
+  .file-item-status{font-size:11px;white-space:nowrap;font-family:'DM Mono',monospace;min-width:160px;text-align:right}
+  .s-wait{color:var(--text3)}.s-run{color:var(--warn)}.s-done{color:var(--success)}.s-err{color:var(--danger)}
+  .progress-wrap{margin:14px 0}
+  .progress-header{display:flex;justify-content:space-between;margin-bottom:6px;font-size:12px;color:var(--text2)}
+  .progress-track{height:6px;background:var(--border);border-radius:3px;overflow:hidden}
+  .progress-fill{height:100%;background:var(--accent);border-radius:3px;transition:width .3s ease}
+  .result-table-wrap{overflow-x:auto}
+  table.rt{width:100%;border-collapse:collapse;font-size:12px}
+  table.rt th{background:var(--surface2);padding:8px 10px;text-align:center;font-weight:500;color:var(--text2);border-bottom:1px solid var(--border);white-space:nowrap}
+  table.rt th:first-child{text-align:left}
+  table.rt td{padding:8px 10px;border-bottom:1px solid var(--border);color:var(--text);text-align:center}
+  table.rt td:first-child{text-align:left}
+  table.rt tr:last-child td{border-bottom:none}
+  table.rt tr:hover td{background:var(--surface2)}
+  .col-sep{border-left:2px solid var(--border2) !important}
+  .gb{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:500;font-family:'DM Mono',monospace}
+  .ga{background:#e8f5e9;color:#1d6a3e}.gbb{background:#e3f0fb;color:#1a4f8a}.gc{background:var(--warn-bg);color:var(--warn)}.gd{background:var(--danger-bg);color:var(--danger)}
+  .notice{padding:10px 14px;border-radius:var(--radius);font-size:12px;line-height:1.6;margin-top:10px}
+  .notice-err{background:var(--danger-bg);color:var(--danger);border:1px solid #f5c5bf}
+  .notice-ok{background:var(--success-bg);color:var(--success);border:1px solid #c3dfc9}
+  .notice-info{background:var(--warn-bg);color:var(--warn);border:1px solid #edd98a}
+  @media(max-width:700px){.layout{grid-template-columns:1fr}.sidebar{height:auto;position:static}.main{padding:24px 16px}.form-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="logo"><div class="logo-dot"></div>Essay Grader</div>
+    <button class="nav-item active" id="nav0" onclick="goTab(0)"><span class="nav-num">1</span> 루브릭 PDF</button>
+    <button class="nav-item" id="nav1" onclick="goTab(1)"><span class="nav-num">2</span> 과제 설정</button>
+    <button class="nav-item" id="nav2" onclick="goTab(2)"><span class="nav-num">3</span> 답안 업로드</button>
+    <button class="nav-item" id="nav3" onclick="goTab(3)"><span class="nav-num">4</span> 채점 결과</button>
+    <div class="sidebar-footer">API 키는 서버에서<br>안전하게 관리됩니다.<br><br>Powered by Gemini 2.5 Flash</div>
+  </aside>
+
+  <main class="main">
+
+    <!-- 1. 루브릭 PDF -->
+    <div class="page active" id="page0">
+      <div class="page-title">루브릭 PDF</div>
+      <div class="page-sub">채점 기준 PDF에서 항목별 최저점·최고점을 자동 추출합니다</div>
+      <div class="card">
+        <div class="card-title">채점 기준 PDF</div>
+        <div class="drop-zone" id="rubricDrop" ondragover="onDrag(event,'rubricDrop',true)" ondragleave="onDrag(event,'rubricDrop',false)" ondrop="onDropRubric(event)">
+          <input type="file" accept=".pdf" id="rubricInput" onchange="onRubricSelect(event)">
+          <div class="drop-icon">📋</div>
+          <div class="drop-title">루브릭 PDF를 끌어다 놓거나 클릭</div>
+          <div class="drop-sub">채점 기준, 루브릭, 평가 지침 PDF</div>
+        </div>
+        <div id="rubricFileInfo" style="display:none" class="file-loaded">
+          <span style="font-size:18px">📋</span>
+          <span class="file-loaded-name" id="rubricFileName"></span>
+          <span class="file-loaded-size" id="rubricFileSize"></span>
+          <button class="file-remove" onclick="removeRubric()">×</button>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-full" id="parseBtn" onclick="parsePdf()" disabled><span id="parseTxt">루브릭 추출하기</span></button>
+      <div id="parseNotice"></div>
+
+      <div class="card" id="rubricCard" style="display:none;margin-top:14px">
+        <div class="card-title">추출된 루브릭 <span id="rubricCount" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:12px"></span></div>
+        <div id="rubricChips"></div>
+        <div class="score-summary">
+          <div class="score-sum-item">
+            <div class="score-sum-num" id="sumMin">—</div>
+            <div class="score-sum-lbl">기본 점수 (최저점 합계)</div>
+          </div>
+          <div class="score-sum-item">
+            <div class="score-sum-num" id="sumMax">—</div>
+            <div class="score-sum-lbl">만점 (최고점 합계)</div>
+          </div>
+        </div>
+      </div>
+      <div class="btn-row" style="margin-top:14px"><button class="btn btn-primary" onclick="goTab(1)">과제 설정 →</button></div>
+    </div>
+
+    <!-- 2. 과제 설정 -->
+    <div class="page" id="page1">
+      <div class="page-title">과제 설정</div>
+      <div class="page-sub">문제와 미응시자 점수를 설정하세요</div>
+
+      <div class="absent-score-box">
+        <div class="absent-score-title">⚙ 미응시자 점수 (AI 채점과 별개)</div>
+        <div>
+          <label>미응시자에게 부여할 점수</label>
+          <input type="number" id="absentScore" value="0" min="0" placeholder="예: 5" style="max-width:160px">
+        </div>
+        <div class="absent-score-note">
+          ※ 기본 점수(최저점)는 루브릭 PDF에서 자동 추출됩니다.<br>
+          ※ 미응시자 점수는 AI 채점 없이 별도 열로 엑셀에 출력됩니다.
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">과제 정보</div>
+        <div class="form-row"><label>과목 / 과제명</label><input type="text" id="subject" placeholder="예: 중학교 사회 — 산업화의 영향"></div>
+        <div class="form-row"><label>문제</label><textarea id="question" rows="4" placeholder="학생이 답해야 할 문제를 입력하세요..."></textarea></div>
+        <div class="form-row" style="margin-bottom:0"><label>모범 답안 <span style="font-weight:400;color:var(--text3)">(선택)</span></label><textarea id="modelAnswer" rows="3" placeholder="없으면 PDF 루브릭 기준으로만 채점합니다..."></textarea></div>
+      </div>
+      <div class="btn-row"><button class="btn" onclick="goTab(0)">← 이전</button><button class="btn btn-primary" onclick="goTab(2)">답안 업로드 →</button></div>
+    </div>
+
+    <!-- 3. 답안 업로드 -->
+    <div class="page" id="page2">
+      <div class="page-title">답안 업로드</div>
+      <div class="page-sub">학생 답안 PDF를 여러 개 한꺼번에 업로드하세요. 파일명이 학생 이름으로 사용됩니다.</div>
+      <div class="card">
+        <div class="card-title">학생 답안 PDF</div>
+        <div class="drop-zone" id="answerDrop" ondragover="onDrag(event,'answerDrop',true)" ondragleave="onDrag(event,'answerDrop',false)" ondrop="onDropAnswers(event)">
+          <input type="file" accept=".pdf" id="answerInput" multiple onchange="onAnswersSelect(event)">
+          <div class="drop-icon">📂</div>
+          <div class="drop-title">답안 PDF를 끌어다 놓거나 클릭</div>
+          <div class="drop-sub">여러 파일 동시 선택 가능</div>
+        </div>
+        <div id="answerFileList" class="file-list"></div>
+      </div>
+      <div id="answerCount" style="font-size:12px;color:var(--text3);text-align:right;margin-top:-6px;margin-bottom:8px"></div>
+      <div class="notice notice-info" style="margin-bottom:14px">미응시 학생은 업로드하지 않아도 됩니다. 채점 완료 후 엑셀에서 미응시점수 열을 활용하세요.</div>
+      <div class="btn-row"><button class="btn" onclick="goTab(1)">← 이전</button><button class="btn btn-primary" id="startBtn" onclick="startGrading()" disabled>채점 시작 →</button></div>
+    </div>
+
+    <!-- 4. 채점 결과 -->
+    <div class="page" id="page3">
+      <div class="page-title">채점 결과</div>
+      <div class="page-sub" id="resultSub">채점 진행 중...</div>
+      <div class="progress-wrap">
+        <div class="progress-header"><span id="progressLabel">0 / 0</span><span id="progressPct">0%</span></div>
+        <div class="progress-track"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>
+      </div>
+      <div class="card" id="gradingFileList" style="display:none">
+        <div class="card-title">파일별 진행 상태</div>
+        <div id="gradingItems"></div>
+      </div>
+      <div id="resultSection" style="display:none">
+        <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+          <button class="btn btn-success" onclick="exportExcel()">📥 엑셀 다운로드</button>
+          <button class="btn" onclick="goTab(2)">← 다시 채점</button>
+          <span style="font-size:12px;color:var(--text3);margin-left:4px">
+            기본점수(최저): <strong id="showBaseScore">—</strong>점 ·
+            만점: <strong id="showTotalMax">—</strong>점 ·
+            미응시점수: <strong id="showAbsentScore">—</strong>점
+          </span>
+        </div>
+        <div class="card">
+          <div class="card-title">전체 결과 <span id="resultCount" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:12px"></span></div>
+          <div class="result-table-wrap"><table class="rt"><thead id="resultHead"></thead><tbody id="resultBody"></tbody></table></div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+var rubricBase64=null, parsedRubrics=[], totalMin=0, totalMax=0, answerFiles=[], gradingResults=[];
+
+function goTab(i){
+  document.querySelectorAll('.page').forEach(function(p,j){p.classList.toggle('active',i===j)});
+  document.querySelectorAll('.nav-item').forEach(function(n,j){n.classList.toggle('active',i===j)});
+}
+function onDrag(e,id,over){e.preventDefault();document.getElementById(id).classList.toggle('over',over)}
+
+// ── 루브릭 PDF ──
+function onDropRubric(e){e.preventDefault();document.getElementById('rubricDrop').classList.remove('over');var f=e.dataTransfer.files[0];if(f&&f.type==='application/pdf')loadRubricFile(f)}
+function onRubricSelect(e){var f=e.target.files[0];if(f)loadRubricFile(f)}
+function loadRubricFile(f){
+  var r=new FileReader();
+  r.onload=function(ev){
+    rubricBase64=ev.target.result.split(',')[1];
+    document.getElementById('rubricFileName').textContent=f.name;
+    document.getElementById('rubricFileSize').textContent=fmtSize(f.size);
+    document.getElementById('rubricFileInfo').style.display='flex';
+    document.getElementById('parseBtn').disabled=false;
+    document.getElementById('parseNotice').innerHTML='';
+  };
+  r.readAsDataURL(f);
+}
+function removeRubric(){
+  rubricBase64=null;parsedRubrics=[];totalMin=0;totalMax=0;
+  document.getElementById('rubricFileInfo').style.display='none';
+  document.getElementById('rubricInput').value='';
+  document.getElementById('parseBtn').disabled=true;
+  document.getElementById('rubricCard').style.display='none';
+}
+
+async function parsePdf(){
+  var btn=document.getElementById('parseBtn'),txt=document.getElementById('parseTxt');
+  btn.disabled=true;txt.innerHTML='<div class="spinner"></div> 분석 중...';
+  document.getElementById('parseNotice').innerHTML='';
+  document.getElementById('rubricCard').style.display='none';
+  try{
+    var res=await fetch('/api/parse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pdfBase64:rubricBase64})});
+    var data=await res.json();
+    if(data.error)throw new Error(data.error);
+    parsedRubrics=data.rubrics||[];
+    totalMin=data.totalMin||parsedRubrics.reduce(function(s,r){return s+(r.min||0)},0);
+    totalMax=data.totalMax||parsedRubrics.reduce(function(s,r){return s+(r.max||0)},0);
+
+    document.getElementById('rubricChips').innerHTML=parsedRubrics.map(function(r){
+      return '<div class="rubric-chip"><div><div class="chip-name">'+r.name+'</div>'+(r.description?'<div class="chip-desc">'+r.description+'</div>':'')+'</div><div class="chip-range">'+r.min+' ~ '+r.max+'점</div></div>';
+    }).join('');
+    document.getElementById('rubricCount').textContent='— '+parsedRubrics.length+'개 항목';
+    document.getElementById('sumMin').textContent=totalMin+'점';
+    document.getElementById('sumMax').textContent=totalMax+'점';
+    document.getElementById('rubricCard').style.display='block';
+    document.getElementById('nav0').classList.add('done');
+    showNotice('parseNotice','ok','루브릭 '+parsedRubrics.length+'개 항목 추출 완료 · 기본점수(최저): '+totalMin+'점 · 만점: '+totalMax+'점');
+  }catch(e){showNotice('parseNotice','err','루브릭 추출 실패: '+e.message);}
+  finally{btn.disabled=false;txt.textContent='다시 추출하기';}
+}
+
+// ── 답안 PDF ──
+function onDropAnswers(e){e.preventDefault();document.getElementById('answerDrop').classList.remove('over');loadAnswerFiles(e.dataTransfer.files)}
+function onAnswersSelect(e){loadAnswerFiles(e.target.files)}
+function loadAnswerFiles(files){
+  for(var i=0;i<files.length;i++){
+    (function(f){
+      if(f.type!=='application/pdf')return;
+      var r=new FileReader();
+      r.onload=function(ev){
+        var name=f.name.replace(/\.pdf$/i,'');
+        var idx=answerFiles.findIndex(function(a){return a.name===name});
+        if(idx>=0)answerFiles.splice(idx,1);
+        answerFiles.push({name:name,size:f.size,base64:ev.target.result.split(',')[1]});
+        renderAnswerList();
+      };
+      r.readAsDataURL(f);
+    })(files[i]);
+  }
+}
+function renderAnswerList(){
+  document.getElementById('answerFileList').innerHTML=answerFiles.map(function(f,i){
+    return '<div class="file-item"><span style="font-size:14px">📄</span><span class="file-item-name">'+f.name+'</span><span class="file-item-size">'+fmtSize(f.size)+'</span><button onclick="removeAnswer('+i+')" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:14px;padding:0 2px">×</button></div>';
+  }).join('');
+  document.getElementById('answerCount').textContent=answerFiles.length>0?answerFiles.length+'개 파일 선택됨':'';
+  document.getElementById('startBtn').disabled=answerFiles.length===0;
+}
+function removeAnswer(i){answerFiles.splice(i,1);renderAnswerList()}
+
+// ── 채점 실행 ──
+async function startGrading(){
+  if(!rubricBase64||!parsedRubrics.length){alert('루브릭 PDF를 먼저 추출해주세요.');return}
+  if(!document.getElementById('question').value.trim()){alert('과제 설정 탭에서 문제를 입력해주세요.');return}
+  gradingResults=[];
+  goTab(3);
+  var total=answerFiles.length;
+  var question=document.getElementById('question').value.trim();
+  var modelAnswer=document.getElementById('modelAnswer').value.trim();
+  var absentScore=parseInt(document.getElementById('absentScore').value)||0;
+
+  document.getElementById('showBaseScore').textContent=totalMin;
+  document.getElementById('showTotalMax').textContent=totalMax;
+  document.getElementById('showAbsentScore').textContent=absentScore;
+  document.getElementById('gradingFileList').style.display='block';
+  document.getElementById('resultSection').style.display='none';
+  document.getElementById('resultSub').textContent='채점 진행 중...';
+  document.getElementById('gradingItems').innerHTML=answerFiles.map(function(f,i){
+    return '<div class="file-item" id="gi_'+i+'"><span style="font-size:14px">📄</span><span class="file-item-name">'+f.name+'</span><span class="file-item-status s-wait" id="gs_'+i+'">대기중</span></div>';
+  }).join('');
+
+  for(var i=0;i<answerFiles.length;i++){
+    updateProgress(i,total);
+    var gs=document.getElementById('gs_'+i);
+    gs.textContent='채점중...';gs.className='file-item-status s-run';
+    try{
+      var res=await fetch('/api/grade',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        pdfBase64:rubricBase64,
+        answerPdfBase64:answerFiles[i].base64,
+        question:question,
+        modelAnswer:modelAnswer,
+        studentName:answerFiles[i].name,
+        rubrics:parsedRubrics
+      })});
+      var data=await res.json();
+      if(data.error)throw new Error(data.error);
+      data.studentName=answerFiles[i].name;
+      gradingResults.push({ok:true,data:data});
+      gs.textContent='완료 '+data.total+'/'+data.totalMax+'점 ('+data.grade+')';
+      gs.className='file-item-status s-done';
+    }catch(e){
+      gradingResults.push({ok:false,name:answerFiles[i].name,error:e.message});
+      gs.textContent='오류: '+e.message.slice(0,20);
+      gs.className='file-item-status s-err';
+    }
+  }
+  updateProgress(total,total);
+  var okCount=gradingResults.filter(function(r){return r.ok}).length;
+  document.getElementById('resultSub').textContent='채점 완료 — '+okCount+'/'+total+'명 성공';
+  document.getElementById('nav3').classList.add('done');
+  renderResultTable();
+}
+
+function updateProgress(done,total){
+  var pct=total>0?Math.round((done/total)*100):0;
+  document.getElementById('progressLabel').textContent=done+' / '+total;
+  document.getElementById('progressPct').textContent=pct+'%';
+  document.getElementById('progressFill').style.width=pct+'%';
+}
+
+function renderResultTable(){
+  var absentScore=parseInt(document.getElementById('absentScore').value)||0;
+  document.getElementById('resultSection').style.display='block';
+  document.getElementById('resultCount').textContent='— '+gradingResults.length+'명';
+
+  var rubCols=parsedRubrics.map(function(r){
+    return '<th>'+r.name+'<br><span style="font-weight:400;color:var(--text3);font-family:DM Mono,monospace">'+r.min+'~'+r.max+'</span></th>';
+  }).join('');
+  document.getElementById('resultHead').innerHTML='<tr><th>학생</th>'+rubCols+'<th>AI채점점수</th><th>등급</th><th class="col-sep">기본점수</th><th>미응시점수</th></tr>';
+
+  document.getElementById('resultBody').innerHTML=gradingResults.map(function(r){
+    if(r.ok){
+      var d=r.data;
+      var pct=Math.round((d.total/totalMax)*100);
+      var gc=pct>=90?'ga':pct>=70?'gbb':pct>=50?'gc':'gd';
+      var rubCells=parsedRubrics.map(function(rub){
+        var found=d.rubrics&&d.rubrics.find(function(x){return x.name===rub.name});
+        return '<td>'+(found?found.score:'—')+'</td>';
+      }).join('');
+      return '<tr><td><strong>'+d.studentName+'</strong></td>'+rubCells
+        +'<td><strong>'+d.total+'</strong>/'+totalMax+'</td>'
+        +'<td><span class="gb '+gc+'">'+d.grade+'</span></td>'
+        +'<td class="col-sep">'+totalMin+'</td>'
+        +'<td style="color:var(--text3)">—</td></tr>';
+    } else {
+      var emptyCells=parsedRubrics.map(function(){return '<td></td>';}).join('');
+      return '<tr><td><strong>'+r.name+'</strong></td>'+emptyCells
+        +'<td style="color:var(--danger);font-size:11px">오류</td><td></td>'
+        +'<td class="col-sep">'+totalMin+'</td>'
+        +'<td style="color:var(--text3)">—</td></tr>';
+    }
+  }).join('');
+}
+
+// ── 엑셀 내보내기 ──
+function exportExcel(){
+  var absentScore=parseInt(document.getElementById('absentScore').value)||0;
+  var wb=XLSX.utils.book_new();
+
+  // 시트1: 채점 결과
+  var header=['학생']
+    .concat(parsedRubrics.map(function(r){return r.name+'('+r.min+'~'+r.max+')'}))
+    .concat(['AI채점점수','만점','달성률(%)','등급','기본점수(최저)','미응시점수']);
+  var rows=gradingResults.map(function(r){
+    if(r.ok){
+      var d=r.data;
+      var scores=parsedRubrics.map(function(rub){
+        var f=d.rubrics&&d.rubrics.find(function(x){return x.name===rub.name});
+        return f?f.score:'';
+      });
+      return [d.studentName].concat(scores).concat([d.total,totalMax,Math.round((d.total/totalMax)*100),d.grade,totalMin,'']);
+    } else {
+      return [r.name].concat(parsedRubrics.map(function(){return ''})).concat(['오류',totalMax,'','',totalMin,'']);
+    }
+  });
+  var ws1=XLSX.utils.aoa_to_sheet([header].concat(rows));
+  ws1['!cols']=header.map(function(){return {wch:14}});
+  XLSX.utils.book_append_sheet(wb,ws1,'채점 결과');
+
+  // 시트2: 피드백 상세
+  var fbRows=[];
+  gradingResults.forEach(function(r){
+    if(!r.ok)return;
+    var d=r.data;
+    if(d.rubrics)d.rubrics.forEach(function(rub){
+      fbRows.push([d.studentName,rub.name,rub.min,rub.max,rub.score,rub.feedback]);
+    });
+    fbRows.push([d.studentName,'종합 피드백','','','',d.overall]);
+    fbRows.push([]);
+  });
+  var ws2=XLSX.utils.aoa_to_sheet([['학생','항목','최저','만점','점수','피드백']].concat(fbRows));
+  ws2['!cols']=[{wch:14},{wch:18},{wch:6},{wch:6},{wch:6},{wch:60}];
+  XLSX.utils.book_append_sheet(wb,ws2,'피드백 상세');
+
+  // 시트3: 점수 세팅 메모
+  var ws3=XLSX.utils.aoa_to_sheet([
+    ['수행평가 점수 세팅'],[''],
+    ['기본 점수 (루브릭 최저점 합계)',totalMin],
+    ['만점 (루브릭 최고점 합계)',totalMax],
+    ['미응시자 점수',absentScore],[''],
+    ['※ 기본 점수는 루브릭 PDF에서 자동 추출된 최저점 합계입니다.'],
+    ['※ AI 채점 점수 범위: '+totalMin+' ~ '+totalMax+'점'],
+    ['※ 미응시자 점수는 AI 채점 없이 별도 부여됩니다.']
+  ]);
+  ws3['!cols']=[{wch:36},{wch:10}];
+  XLSX.utils.book_append_sheet(wb,ws3,'점수 세팅');
+
+  var subject=document.getElementById('subject').value.trim()||'채점결과';
+  XLSX.writeFile(wb,subject+'_'+today()+'.xlsx');
+}
+
+function today(){var d=new Date();return d.getFullYear()+''+(d.getMonth()+1+'').padStart(2,'0')+(d.getDate()+'').padStart(2,'0')}
+function fmtSize(b){return b>1048576?(b/1048576).toFixed(1)+'MB':(b/1024).toFixed(0)+'KB'}
+function showNotice(id,type,msg){document.getElementById(id).innerHTML='<div class="notice notice-'+(type==='err'?'err':'ok')+'">'+msg+'</div>'}
+</script>
+</body>
+</html>
