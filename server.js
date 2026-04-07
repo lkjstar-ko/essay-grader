@@ -10,7 +10,7 @@ const KEY = process.env.GEMINI_API_KEY;
 const URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + KEY;
 
 async function callGemini(parts, jsonMode) {
-  var config = jsonMode ? { temperature: 0.1, responseMimeType: 'application/json' } : { temperature: 0.1 };
+  var config = jsonMode ? { temperature: 0.3, responseMimeType: 'application/json' } : { temperature: 0.3 };
   var res = await fetch(URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -55,10 +55,23 @@ app.post('/api/grade', async function(req, res) {
     var prompt = '다음 조건으로 학생 답안을 채점하고 JSON으로만 반환하세요.\n'
       + '문제: ' + question + '\n'
       + (modelAnswer ? '모범답안: ' + modelAnswer + '\n' : '')
-      + '루브릭(각 항목의 최저~최고): ' + rubricStr + '\n'
+      + '루브릭(최저~최고): ' + rubricStr + '\n'
       + '답안은 첨부된 두 번째 PDF를 참고하세요.\n'
-      + '각 항목 점수는 반드시 최저점 이상 최고점 이하여야 합니다.\n'
-      + '형식: {"rubrics":[{"name":"항목명","min":최저점,"max":최고점,"score":부여점수,"feedback":"피드백 2-3문장"}],"total":합계점수,"totalMax":' + totalMax + ',"grade":"등급(A+/A/B+/B/C+/C/D/F)","overall":"종합피드백 5-7문장"}';
+      + '각 항목 점수는 반드시 최저점 이상 최고점 이하여야 합니다.\n\n'
+      + '채점 후 세특(학교생활기록부 교과 세부능력 및 특기사항) 문구를 작성하세요.\n'
+      + '세특 작성 조건:\n'
+      + '- 당신은 교과 담당 교사입니다.\n'
+      + '- 학생의 수행평가 내용을 바탕으로 역량 중심으로 기술하세요.\n'
+      + '- 성찰 역량화: 어려움은 끈기로, 흥미는 학습 호기심으로 변환하여 기술하세요.\n'
+      + '- 분량: 공백 포함 500byte 이내, 한 개의 문단으로 작성하세요.\n'
+      + '- 수치, 백분율, 괄호와 그 내용을 모두 제외하세요.\n'
+      + '- 교사의 관찰자 시점으로 서술하세요: ~함, ~보임, ~구현함\n'
+      + '- 외래어는 필수 용어 외 지양하세요.\n'
+      + '- 동일 단어 반복을 피하세요.\n'
+      + '- 금지 표현: 체득함, 느꼈음, 이해함, 알게 됨, 깨달음, ~을 느낌 등 관찰 불가능한 내면 묘사\n'
+      + '- 대신 사용: 이해도가 높음, 태도가 돋보임, 역량을 발휘함 등 관찰 가능한 표현\n'
+      + '- 학생의 발전 가능성이 드러나도록 긍정적으로 서술하세요.\n\n'
+      + '형식: {"rubrics":[{"name":"항목명","min":최저점,"max":최고점,"score":부여점수,"feedback":"항목별 피드백 1-2문장"}],"total":합계점수,"totalMax":' + totalMax + ',"grade":"등급(A+/A/B+/B/C+/C/D/F)","setech":"세특 문구 (500byte 이내 한 문단)"}';
 
     var parts = [
       { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } },

@@ -32,7 +32,6 @@
   input[type=text]:focus,input[type=number]:focus,textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(45,90,61,.08)}
   input[type=number]{-moz-appearance:textfield}
   .form-row{margin-bottom:14px}
-  .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
   .drop-zone{border:1.5px dashed var(--border2);border-radius:var(--radius-lg);padding:28px 24px;text-align:center;cursor:pointer;transition:background .15s,border-color .15s;position:relative}
   .drop-zone:hover,.drop-zone.over{background:var(--accent-light);border-color:var(--accent)}
   .drop-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
@@ -86,11 +85,27 @@
   .col-sep{border-left:2px solid var(--border2) !important}
   .gb{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:500;font-family:'DM Mono',monospace}
   .ga{background:#e8f5e9;color:#1d6a3e}.gbb{background:#e3f0fb;color:#1a4f8a}.gc{background:var(--warn-bg);color:var(--warn)}.gd{background:var(--danger-bg);color:var(--danger)}
+  /* 세특 카드 */
+  .setech-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px;margin-bottom:10px;box-shadow:var(--shadow)}
+  .setech-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px}
+  .setech-name{font-size:13px;font-weight:500;color:var(--text)}
+  .setech-score{font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;white-space:nowrap}
+  .setech-text{font-size:13px;line-height:1.8;color:var(--text);background:var(--surface2);border-radius:var(--radius);padding:12px 14px;margin-bottom:8px}
+  .setech-byte{font-size:11px;color:var(--text3);text-align:right}
+  .copy-btn{background:none;border:1px solid var(--border);border-radius:var(--radius);padding:4px 10px;font-size:11px;cursor:pointer;color:var(--text2);font-family:'Noto Sans KR',sans-serif;transition:background .15s}
+  .copy-btn:hover{background:var(--surface2)}
+  .copy-btn.copied{color:var(--success);border-color:var(--success)}
   .notice{padding:10px 14px;border-radius:var(--radius);font-size:12px;line-height:1.6;margin-top:10px}
   .notice-err{background:var(--danger-bg);color:var(--danger);border:1px solid #f5c5bf}
   .notice-ok{background:var(--success-bg);color:var(--success);border:1px solid #c3dfc9}
   .notice-info{background:var(--warn-bg);color:var(--warn);border:1px solid #edd98a}
-  @media(max-width:700px){.layout{grid-template-columns:1fr}.sidebar{height:auto;position:static}.main{padding:24px 16px}.form-grid{grid-template-columns:1fr}}
+  /* 결과 탭 */
+  .result-tabs{display:flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:14px;width:fit-content}
+  .result-tab{padding:7px 18px;font-size:13px;font-weight:500;color:var(--text2);background:var(--surface);border:none;cursor:pointer;transition:background .15s}
+  .result-tab.active{background:var(--accent-light);color:var(--accent)}
+  .result-tab:not(:last-child){border-right:1px solid var(--border)}
+  .result-pane{display:none}.result-pane.active{display:block}
+  @media(max-width:700px){.layout{grid-template-columns:1fr}.sidebar{height:auto;position:static}.main{padding:24px 16px}}
 </style>
 </head>
 <body>
@@ -127,7 +142,6 @@
       </div>
       <button class="btn btn-primary btn-full" id="parseBtn" onclick="parsePdf()" disabled><span id="parseTxt">루브릭 추출하기</span></button>
       <div id="parseNotice"></div>
-
       <div class="card" id="rubricCard" style="display:none;margin-top:14px">
         <div class="card-title">추출된 루브릭 <span id="rubricCount" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:12px"></span></div>
         <div id="rubricChips"></div>
@@ -149,7 +163,6 @@
     <div class="page" id="page1">
       <div class="page-title">과제 설정</div>
       <div class="page-sub">문제와 미응시자 점수를 설정하세요</div>
-
       <div class="absent-score-box">
         <div class="absent-score-title">⚙ 미응시자 점수 (AI 채점과 별개)</div>
         <div>
@@ -161,7 +174,6 @@
           ※ 미응시자 점수는 AI 채점 없이 별도 열로 엑셀에 출력됩니다.
         </div>
       </div>
-
       <div class="card">
         <div class="card-title">과제 정보</div>
         <div class="form-row"><label>과목 / 과제명</label><input type="text" id="subject" placeholder="예: 중학교 사회 — 산업화의 영향"></div>
@@ -207,14 +219,27 @@
           <button class="btn btn-success" onclick="exportExcel()">📥 엑셀 다운로드</button>
           <button class="btn" onclick="goTab(2)">← 다시 채점</button>
           <span style="font-size:12px;color:var(--text3);margin-left:4px">
-            기본점수(최저): <strong id="showBaseScore">—</strong>점 ·
-            만점: <strong id="showTotalMax">—</strong>점 ·
-            미응시점수: <strong id="showAbsentScore">—</strong>점
+            기본점수: <strong id="showBaseScore">—</strong>점 · 만점: <strong id="showTotalMax">—</strong>점 · 미응시: <strong id="showAbsentScore">—</strong>점
           </span>
         </div>
-        <div class="card">
-          <div class="card-title">전체 결과 <span id="resultCount" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:12px"></span></div>
-          <div class="result-table-wrap"><table class="rt"><thead id="resultHead"></thead><tbody id="resultBody"></tbody></table></div>
+
+        <!-- 결과 탭 -->
+        <div class="result-tabs">
+          <button class="result-tab active" onclick="switchResultTab(0)">점수표</button>
+          <button class="result-tab" onclick="switchResultTab(1)">세특 문구</button>
+        </div>
+
+        <!-- 점수표 -->
+        <div class="result-pane active" id="rpane0">
+          <div class="card">
+            <div class="card-title">전체 채점 결과 <span id="resultCount" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:12px"></span></div>
+            <div class="result-table-wrap"><table class="rt"><thead id="resultHead"></thead><tbody id="resultBody"></tbody></table></div>
+          </div>
+        </div>
+
+        <!-- 세특 문구 -->
+        <div class="result-pane" id="rpane1">
+          <div id="setechList"></div>
         </div>
       </div>
     </div>
@@ -228,6 +253,10 @@ var rubricBase64=null, parsedRubrics=[], totalMin=0, totalMax=0, answerFiles=[],
 function goTab(i){
   document.querySelectorAll('.page').forEach(function(p,j){p.classList.toggle('active',i===j)});
   document.querySelectorAll('.nav-item').forEach(function(n,j){n.classList.toggle('active',i===j)});
+}
+function switchResultTab(i){
+  document.querySelectorAll('.result-tab').forEach(function(t,j){t.classList.toggle('active',i===j)});
+  document.querySelectorAll('.result-pane').forEach(function(p,j){p.classList.toggle('active',i===j)});
 }
 function onDrag(e,id,over){e.preventDefault();document.getElementById(id).classList.toggle('over',over)}
 
@@ -253,7 +282,6 @@ function removeRubric(){
   document.getElementById('parseBtn').disabled=true;
   document.getElementById('rubricCard').style.display='none';
 }
-
 async function parsePdf(){
   var btn=document.getElementById('parseBtn'),txt=document.getElementById('parseTxt');
   btn.disabled=true;txt.innerHTML='<div class="spinner"></div> 분석 중...';
@@ -266,7 +294,6 @@ async function parsePdf(){
     parsedRubrics=data.rubrics||[];
     totalMin=data.totalMin||parsedRubrics.reduce(function(s,r){return s+(r.min||0)},0);
     totalMax=data.totalMax||parsedRubrics.reduce(function(s,r){return s+(r.max||0)},0);
-
     document.getElementById('rubricChips').innerHTML=parsedRubrics.map(function(r){
       return '<div class="rubric-chip"><div><div class="chip-name">'+r.name+'</div>'+(r.description?'<div class="chip-desc">'+r.description+'</div>':'')+'</div><div class="chip-range">'+r.min+' ~ '+r.max+'점</div></div>';
     }).join('');
@@ -275,7 +302,7 @@ async function parsePdf(){
     document.getElementById('sumMax').textContent=totalMax+'점';
     document.getElementById('rubricCard').style.display='block';
     document.getElementById('nav0').classList.add('done');
-    showNotice('parseNotice','ok','루브릭 '+parsedRubrics.length+'개 항목 추출 완료 · 기본점수(최저): '+totalMin+'점 · 만점: '+totalMax+'점');
+    showNotice('parseNotice','ok','루브릭 '+parsedRubrics.length+'개 항목 추출 완료 · 기본점수: '+totalMin+'점 · 만점: '+totalMax+'점');
   }catch(e){showNotice('parseNotice','err','루브릭 추출 실패: '+e.message);}
   finally{btn.disabled=false;txt.textContent='다시 추출하기';}
 }
@@ -318,7 +345,6 @@ async function startGrading(){
   var question=document.getElementById('question').value.trim();
   var modelAnswer=document.getElementById('modelAnswer').value.trim();
   var absentScore=parseInt(document.getElementById('absentScore').value)||0;
-
   document.getElementById('showBaseScore').textContent=totalMin;
   document.getElementById('showTotalMax').textContent=totalMax;
   document.getElementById('showAbsentScore').textContent=absentScore;
@@ -328,25 +354,21 @@ async function startGrading(){
   document.getElementById('gradingItems').innerHTML=answerFiles.map(function(f,i){
     return '<div class="file-item" id="gi_'+i+'"><span style="font-size:14px">📄</span><span class="file-item-name">'+f.name+'</span><span class="file-item-status s-wait" id="gs_'+i+'">대기중</span></div>';
   }).join('');
-
   for(var i=0;i<answerFiles.length;i++){
     updateProgress(i,total);
     var gs=document.getElementById('gs_'+i);
     gs.textContent='채점중...';gs.className='file-item-status s-run';
     try{
       var res=await fetch('/api/grade',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-        pdfBase64:rubricBase64,
-        answerPdfBase64:answerFiles[i].base64,
-        question:question,
-        modelAnswer:modelAnswer,
-        studentName:answerFiles[i].name,
-        rubrics:parsedRubrics
+        pdfBase64:rubricBase64,answerPdfBase64:answerFiles[i].base64,
+        question:question,modelAnswer:modelAnswer,
+        studentName:answerFiles[i].name,rubrics:parsedRubrics
       })});
       var data=await res.json();
       if(data.error)throw new Error(data.error);
       data.studentName=answerFiles[i].name;
       gradingResults.push({ok:true,data:data});
-      gs.textContent='완료 '+data.total+'/'+data.totalMax+'점 ('+data.grade+')';
+      gs.textContent='완료 '+data.total+'/'+totalMax+'점 ('+data.grade+')';
       gs.className='file-item-status s-done';
     }catch(e){
       gradingResults.push({ok:false,name:answerFiles[i].name,error:e.message});
@@ -359,6 +381,7 @@ async function startGrading(){
   document.getElementById('resultSub').textContent='채점 완료 — '+okCount+'/'+total+'명 성공';
   document.getElementById('nav3').classList.add('done');
   renderResultTable();
+  renderSetechList();
 }
 
 function updateProgress(done,total){
@@ -372,12 +395,10 @@ function renderResultTable(){
   var absentScore=parseInt(document.getElementById('absentScore').value)||0;
   document.getElementById('resultSection').style.display='block';
   document.getElementById('resultCount').textContent='— '+gradingResults.length+'명';
-
   var rubCols=parsedRubrics.map(function(r){
     return '<th>'+r.name+'<br><span style="font-weight:400;color:var(--text3);font-family:DM Mono,monospace">'+r.min+'~'+r.max+'</span></th>';
   }).join('');
   document.getElementById('resultHead').innerHTML='<tr><th>학생</th>'+rubCols+'<th>AI채점점수</th><th>등급</th><th class="col-sep">기본점수</th><th>미응시점수</th></tr>';
-
   document.getElementById('resultBody').innerHTML=gradingResults.map(function(r){
     if(r.ok){
       var d=r.data;
@@ -400,6 +421,36 @@ function renderResultTable(){
         +'<td style="color:var(--text3)">—</td></tr>';
     }
   }).join('');
+}
+
+function renderSetechList(){
+  var ok=gradingResults.filter(function(r){return r.ok});
+  document.getElementById('setechList').innerHTML=ok.map(function(r,i){
+    var d=r.data;
+    var setech=d.setech||'세특 문구 없음';
+    var bytes=new TextEncoder().encode(setech).length;
+    var pct=Math.round((d.total/totalMax)*100);
+    var gc=pct>=90?'ga':pct>=70?'gbb':pct>=50?'gc':'gd';
+    return '<div class="setech-card">'
+      +'<div class="setech-header">'
+      +'<span class="setech-name"><strong>'+d.studentName+'</strong></span>'
+      +'<div style="display:flex;align-items:center;gap:8px">'
+      +'<span class="setech-score">'+d.total+'/'+totalMax+'점</span>'
+      +'<span class="gb '+gc+'">'+d.grade+'</span>'
+      +'<button class="copy-btn" onclick="copySetech(this,\'setech_'+i+'\')">복사</button>'
+      +'</div></div>'
+      +'<div class="setech-text" id="setech_'+i+'">'+setech+'</div>'
+      +'<div class="setech-byte">'+bytes+' byte / 500 byte'+(bytes>500?' ⚠ 초과':'')+'</div>'
+      +'</div>';
+  }).join('');
+}
+
+function copySetech(btn, id){
+  var text=document.getElementById(id).textContent;
+  navigator.clipboard.writeText(text).then(function(){
+    btn.textContent='복사됨';btn.classList.add('copied');
+    setTimeout(function(){btn.textContent='복사';btn.classList.remove('copied');},2000);
+  });
 }
 
 // ── 엑셀 내보내기 ──
@@ -427,23 +478,35 @@ function exportExcel(){
   ws1['!cols']=header.map(function(){return {wch:14}});
   XLSX.utils.book_append_sheet(wb,ws1,'채점 결과');
 
-  // 시트2: 피드백 상세
-  var fbRows=[];
+  // 시트2: 세특 문구
+  var setechRows=[['학생','등급','AI채점점수','세특 문구','byte수']];
+  gradingResults.forEach(function(r){
+    if(!r.ok)return;
+    var d=r.data;
+    var setech=d.setech||'';
+    var bytes=new TextEncoder().encode(setech).length;
+    setechRows.push([d.studentName,d.grade,d.total+'/'+totalMax,setech,bytes]);
+  });
+  var ws2=XLSX.utils.aoa_to_sheet(setechRows);
+  ws2['!cols']=[{wch:14},{wch:6},{wch:12},{wch:80},{wch:8}];
+  XLSX.utils.book_append_sheet(wb,ws2,'세특 문구');
+
+  // 시트3: 피드백 상세
+  var fbRows=[['학생','항목','최저','만점','점수','항목별 피드백']];
   gradingResults.forEach(function(r){
     if(!r.ok)return;
     var d=r.data;
     if(d.rubrics)d.rubrics.forEach(function(rub){
       fbRows.push([d.studentName,rub.name,rub.min,rub.max,rub.score,rub.feedback]);
     });
-    fbRows.push([d.studentName,'종합 피드백','','','',d.overall]);
     fbRows.push([]);
   });
-  var ws2=XLSX.utils.aoa_to_sheet([['학생','항목','최저','만점','점수','피드백']].concat(fbRows));
-  ws2['!cols']=[{wch:14},{wch:18},{wch:6},{wch:6},{wch:6},{wch:60}];
-  XLSX.utils.book_append_sheet(wb,ws2,'피드백 상세');
+  var ws3=XLSX.utils.aoa_to_sheet(fbRows);
+  ws3['!cols']=[{wch:14},{wch:18},{wch:6},{wch:6},{wch:6},{wch:60}];
+  XLSX.utils.book_append_sheet(wb,ws3,'항목별 피드백');
 
-  // 시트3: 점수 세팅 메모
-  var ws3=XLSX.utils.aoa_to_sheet([
+  // 시트4: 점수 세팅
+  var ws4=XLSX.utils.aoa_to_sheet([
     ['수행평가 점수 세팅'],[''],
     ['기본 점수 (루브릭 최저점 합계)',totalMin],
     ['만점 (루브릭 최고점 합계)',totalMax],
@@ -452,8 +515,8 @@ function exportExcel(){
     ['※ AI 채점 점수 범위: '+totalMin+' ~ '+totalMax+'점'],
     ['※ 미응시자 점수는 AI 채점 없이 별도 부여됩니다.']
   ]);
-  ws3['!cols']=[{wch:36},{wch:10}];
-  XLSX.utils.book_append_sheet(wb,ws3,'점수 세팅');
+  ws4['!cols']=[{wch:36},{wch:10}];
+  XLSX.utils.book_append_sheet(wb,ws4,'점수 세팅');
 
   var subject=document.getElementById('subject').value.trim()||'채점결과';
   XLSX.writeFile(wb,subject+'_'+today()+'.xlsx');
