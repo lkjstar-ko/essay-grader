@@ -72,7 +72,7 @@ app.post('/api/grade', async function(req, res) {
       + '답안은 첨부된 두 번째 PDF를 참고하세요.\n'
       + '각 항목 점수는 반드시 최저점 이상 최고점 이하여야 합니다.\n\n'
       + setechConditions + '\n'
-      + '형식: {"rubrics":[{"name":"항목명","min":최저점,"max":최고점,"score":부여점수,"feedback":"항목별 피드백 1-2문장"}],"total":합계점수,"totalMax":' + totalMax + ',"grade":"등급(A+/A/B+/B/C+/C/D/F)","overall":"세특 문구 (500byte 이내 한 문단)"}';
+      + '형식: {"rubrics":[{"name":"항목명","min":최저점,"max":최고점,"score":부여점수,"feedback":"항목별 피드백 1-2문장"}],"total":합계점수,"totalMax":' + totalMax + ',"grade":"등급(A+/A/B+/B/C+/C/D/F)","setech":"세특 문구 (500byte 이내 한 문단)"}';
 
     var parts = [
       { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } },
