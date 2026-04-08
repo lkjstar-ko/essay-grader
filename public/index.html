@@ -4,6 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>서술형 채점기</title>
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#2d5a3d">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="채점기">
+<link rel="apple-touch-icon" href="/icon-192.png">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
@@ -525,6 +532,17 @@ function exportExcel(){
 function today(){var d=new Date();return d.getFullYear()+''+(d.getMonth()+1+'').padStart(2,'0')+(d.getDate()+'').padStart(2,'0')}
 function fmtSize(b){return b>1048576?(b/1048576).toFixed(1)+'MB':(b/1024).toFixed(0)+'KB'}
 function showNotice(id,type,msg){document.getElementById(id).innerHTML='<div class="notice notice-'+(type==='err'?'err':'ok')+'">'+msg+'</div>'}
+
+// PWA 서비스워커 등록
+if('serviceWorker' in navigator){
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('/sw.js').then(function(reg){
+      console.log('SW 등록 완료:', reg.scope);
+    }).catch(function(err){
+      console.log('SW 등록 실패:', err);
+    });
+  });
+}
 </script>
 </body>
 </html>
