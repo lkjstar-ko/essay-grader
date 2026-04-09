@@ -1,4 +1,4 @@
-var CACHE_NAME = 'essay-grader-v1';
+var CACHE_NAME = 'essay-grader-v1.01';
 var STATIC_ASSETS = [
   '/',
   '/index.html'
