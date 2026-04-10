@@ -7,14 +7,25 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 const KEY = process.env.GEMINI_API_KEY;
-const URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + KEY;
+const BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
 
-async function callGemini(parts, jsonMode) {
-  var config = jsonMode ? { temperature: 0.3, responseMimeType: 'application/json' } : { temperature: 0.3 };
-  var res = await fetch(URL, {
+// 루브릭 추출: Pro 모델 (정밀한 기준 파악)
+const URL_PRO   = BASE + 'gemini-2.5-pro:generateContent?key=' + KEY;
+
+// 채점: Flash 모델 (비용 효율)
+const URL_FLASH = BASE + 'gemini-2.5-flash:generateContent?key=' + KEY;
+
+async function callGemini(url, parts, jsonMode) {
+  var config = jsonMode
+    ? { temperature: 0.1, responseMimeType: 'application/json' }
+    : { temperature: 0.1 };
+  var res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts: parts }], generationConfig: config })
+    body: JSON.stringify({
+      contents: [{ parts: parts }],
+      generationConfig: config
+    })
   });
   var data = await res.json();
   if (data.error) throw new Error(data.error.message);
@@ -23,64 +34,100 @@ async function callGemini(parts, jsonMode) {
   return JSON.parse(text.replace(/```json|```/g, '').trim());
 }
 
+// ── /api/parse : 루브릭 추출 (Pro 모델) ──
 app.post('/api/parse', async function(req, res) {
   try {
     var pdfBase64 = req.body.pdfBase64;
     if (!pdfBase64) return res.status(400).json({ error: 'pdfBase64 필요' });
+
+    var prompt =
+      '당신은 교육 평가 전문가입니다. 첨부된 PDF에서 채점 루브릭을 정밀하게 분석하여 추출하세요.\n\n' +
+      '추출 원칙:\n' +
+      '1. 각 평가 항목의 이름을 정확히 파악하세요.\n' +
+      '2. 각 항목의 최저점(min)과 최고점(max)을 PDF에 명시된 그대로 추출하세요. 임의로 변환하지 마세요.\n' +
+      '3. 각 항목이 실제로 무엇을 평가하는지 구체적인 기준을 description에 서술하세요.\n' +
+      '   예) "논리적 구성"이 아니라 "주장의 근거 제시 여부, 논리적 흐름의 일관성, 결론 도출의 타당성" 처럼 구체적으로\n' +
+      '4. PDF에 수준별 기술어(예: 상/중/하, A/B/C/D)가 있으면 criteria 배열로 포함하세요.\n\n' +
+      '반드시 아래 JSON만 출력하세요:\n' +
+      '{"rubrics":[{"name":"항목명","min":최저점숫자,"max":최고점숫자,"description":"이 항목이 평가하는 구체적 기준","criteria":[{"level":"수준명","score":점수,"desc":"해당 수준 기술어"}]}],"totalMin":최저점합계,"totalMax":최고점합계,"notes":"루브릭 특이사항"}';
+
     var parts = [
       { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } },
-      { text: 'PDF에서 채점 루브릭 항목을 추출하세요. 각 항목의 최저점(min)과 최고점(max)을 모두 추출하세요. 최저점이 명시되지 않은 경우 0으로 설정하세요. 점수를 임의로 변환하지 마세요. 형식: {"rubrics":[{"name":"항목명","min":최저점숫자,"max":최고점숫자,"description":"설명"}],"totalMin":최저점합계,"totalMax":최고점합계,"notes":"특이사항"}' }
+      { text: prompt }
     ];
-    var result = await callGemini(parts, true);
+    var result = await callGemini(URL_PRO, parts, true);
     res.json(result);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
+// ── /api/grade : 채점 (Flash 모델) ──
 app.post('/api/grade', async function(req, res) {
   try {
-    var pdfBase64 = req.body.pdfBase64;
+    var pdfBase64       = req.body.pdfBase64;
     var answerPdfBase64 = req.body.answerPdfBase64;
-    var question = req.body.question;
-    var modelAnswer = req.body.modelAnswer;
-    var studentName = req.body.studentName;
-    var rubrics = req.body.rubrics;
-    if (!pdfBase64 || !rubrics || !rubrics.length) return res.status(400).json({ error: '필수 항목 누락' });
-    if (!answerPdfBase64) return res.status(400).json({ error: '답안 PDF 필요' });
+    var question        = req.body.question;
+    var modelAnswer     = req.body.modelAnswer;
+    var studentName     = req.body.studentName;
+    var rubrics         = req.body.rubrics;
+
+    if (!pdfBase64 || !rubrics || !rubrics.length)
+      return res.status(400).json({ error: '필수 항목 누락' });
+    if (!answerPdfBase64)
+      return res.status(400).json({ error: '답안 PDF 필요' });
 
     var totalMax = rubrics.reduce(function(s, r) { return s + r.max; }, 0);
-    var rubricStr = rubrics.map(function(r) { return r.name + ' (' + r.min + '~' + r.max + '점)'; }).join(', ');
 
-    var setechConditions = ''
-      + '종합 피드백(overall)은 학교생활기록부 교과 세부능력 및 특기사항(세특) 형식으로 작성하세요.\n'
-      + '작성 원칙:\n'
-      + '- 당신은 교과 담당 교사입니다. 단순 활동 나열이 아닌, 학생이 성찰한 지점을 교사가 포착하여 역량으로 평가하는 방식으로 기술하세요.\n'
-      + '- 성찰의 역량화: 어려웠던 부분은 문제 해결을 위한 끈기로, 흥미로운 부분은 학습 호기심 및 원리 이해 노력으로 변환하여 기술하세요.\n'
-      + '- 분량: 공백 포함 500byte 이내, 한 개의 문단으로 작성하세요.\n'
-      + '- 수치, 백분율, 괄호와 그 내용을 모두 제외하세요.\n'
-      + '- 교사의 관찰자 시점을 유지하세요: ~함, ~보임, ~구현함\n'
-      + '- 학생의 발전 가능성이 드러나도록 긍정적으로 서술하세요.\n'
-      + '- 외래어는 필수 용어 외 지양하고, 동일 단어 반복을 피하세요.\n'
-      + '- 금지 표현: 체득함, 느꼈음, 이해함, 알게 됨, 깨달음, ~을 느낌 등 관찰 불가능한 내면 묘사\n'
-      + '- 학생 지칭 금지: 문장 내에 "학생은", "학생이", 학생 이름 등 학생을 직접 지칭하는 표현을 사용하지 마세요. 주어 없이 서술하거나 "~하는 모습이 관찰됨" 형태로 작성하세요.'
-      + '- 허용 표현: 이해도가 높음, 태도가 돋보임, 역량을 발휘함 등 관찰 가능한 표현\n';
+    // 루브릭 상세 정보 구성 (Pro가 추출한 criteria 포함)
+    var rubricDetail = rubrics.map(function(r, i) {
+      var criteriaStr = '';
+      if (r.criteria && r.criteria.length) {
+        criteriaStr = '\n   수준별 기준:\n' + r.criteria.map(function(c) {
+          return '   - ' + c.level + '(' + c.score + '점): ' + c.desc;
+        }).join('\n');
+      }
+      return (i + 1) + '. ' + r.name + ' [' + r.min + '~' + r.max + '점]\n' +
+             '   평가 기준: ' + (r.description || '') + criteriaStr;
+    }).join('\n\n');
 
-    var prompt = '다음 조건으로 학생 답안을 채점하고 JSON으로만 반환하세요.\n'
-      + '문제: ' + question + '\n'
-      + (modelAnswer ? '모범답안: ' + modelAnswer + '\n' : '')
-      + '루브릭(최저~최고): ' + rubricStr + '\n'
-      + '답안은 첨부된 두 번째 PDF를 참고하세요.\n'
-      + '각 항목 점수는 반드시 최저점 이상 최고점 이하여야 합니다.\n\n'
-      + setechConditions + '\n'
-      + '형식: {"rubrics":[{"name":"항목명","min":최저점,"max":최고점,"score":부여점수,"feedback":"항목별 피드백 1-2문장"}],"total":합계점수,"totalMax":' + totalMax + ',"grade":"등급(A+/A/B+/B/C+/C/D/F)","setech":"세특 문구 (500byte 이내 한 문단)"}';
+    var setechConditions =
+      '세특 작성 원칙:\n' +
+      '- 교과 담당 교사 시점으로 학생의 역량을 관찰자 입장에서 기술하세요.\n' +
+      '- 답안에서 드러난 학생의 구체적 사고 과정과 역량을 포착하여 기술하세요.\n' +
+      '- 성찰의 역량화: 부족한 부분은 성장 가능성으로, 잘한 부분은 구체적 역량으로 변환하세요.\n' +
+      '- 분량: 공백 포함 500byte 이내, 한 개의 문단.\n' +
+      '- 수치, 백분율, 괄호와 그 내용 모두 제외.\n' +
+      '- 어미: ~함, ~보임, ~구현함 등 관찰자 시점 유지.\n' +
+      '- 금지: 학생은/학생이/학생 이름 등 학생 직접 지칭 표현.\n' +
+      '- 금지: 체득함, 느꼈음, 이해함, 알게 됨, 깨달음, ~을 느낌 등 내면 묘사.\n' +
+      '- 허용: 이해도가 높음, 태도가 돋보임, 역량을 발휘함 등 관찰 가능한 표현.\n' +
+      '- 외래어 최소화, 동일 단어 반복 금지.\n' +
+      '- 학생의 발전 가능성이 드러나도록 긍정적으로 서술.';
+
+    var prompt =
+      '당신은 교육 평가 전문가입니다. 첨부된 두 PDF(①채점 기준, ②학생 답안)를 분석하여 채점하세요.\n\n' +
+      '[문제]\n' + question + '\n\n' +
+      (modelAnswer ? '[모범 답안]\n' + modelAnswer + '\n\n' : '') +
+      '[채점 루브릭 — 총 ' + totalMax + '점]\n' +
+      rubricDetail + '\n\n' +
+      '[채점 지침]\n' +
+      '1. 학생 답안을 꼼꼼히 읽고 각 루브릭 항목별로 관련 내용을 분석하세요.\n' +
+      '2. 점수는 루브릭의 수준별 기준에 근거하여 부여하세요. 최저점~최고점 범위를 반드시 지키세요.\n' +
+      '3. 피드백은 답안의 구체적 내용을 언급하며 잘한 점과 개선점을 2~3문장으로 서술하세요.\n' +
+      '4. 루브릭 기준에 엄격하게 근거하여 채점하세요.\n\n' +
+      setechConditions + '\n\n' +
+      '반드시 아래 JSON만 출력하세요:\n' +
+      '{"rubrics":[{"name":"항목명","min":최저점,"max":최고점,"score":부여점수,"feedback":"피드백 2~3문장"}],' +
+      '"total":합계점수,"totalMax":' + totalMax + ',"grade":"등급(A+/A/B+/B/C+/C/D/F)",' +
+      '"setech":"세특 문구 (500byte 이내 한 문단)"}';
 
     var parts = [
       { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } },
       { inline_data: { mime_type: 'application/pdf', data: answerPdfBase64 } },
       { text: prompt }
     ];
-    var result = await callGemini(parts, true);
+    var result = await callGemini(URL_FLASH, parts, true);
     res.json(result);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -91,4 +138,5 @@ var PORT = process.env.PORT || 3000;
 app.listen(PORT, function() {
   console.log('서버 실행중: http://localhost:' + PORT);
   console.log('API 키: ' + (KEY ? '로드됨' : '없음'));
+  console.log('모델: 루브릭 추출 → gemini-2.5-pro / 채점 → gemini-2.5-flash');
 });
