@@ -23,8 +23,27 @@ async function callGemini(url, parts, jsonMode) {
   var data = await res.json();
   if (data.error) throw new Error(data.error.message);
   var text = data.candidates[0].content.parts[0].text;
-  if (jsonMode) return JSON.parse(text);
-  return text.trim();
+  if (!jsonMode) return text.trim();
+
+  // JSON 파싱: 마크다운 코드블록 제거 후 { 로 시작하는 부분만 추출
+  var clean = text.replace(/```json[\s\S]*?```/g, function(m) {
+    return m.replace(/```json\s*/,'').replace(/\s*```/,'');
+  }).replace(/```[\s\S]*?```/g, function(m) {
+    return m.replace(/```\s*/g,'');
+  }).trim();
+
+  // { 로 시작하는 위치부터 마지막 } 까지만 추출
+  var start = clean.indexOf('{');
+  var end = clean.lastIndexOf('}');
+  if (start !== -1 && end !== -1 && end > start) {
+    clean = clean.slice(start, end + 1);
+  }
+
+  try {
+    return JSON.parse(clean);
+  } catch (e) {
+    throw new Error('JSON 파싱 실패: ' + e.message + ' / 원문: ' + clean.slice(0, 100));
+  }
 }
 
 // ── /api/parse : 루브릭 추출 (Pro 모델, Flash 폴백) ──

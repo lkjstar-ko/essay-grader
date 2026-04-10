@@ -385,7 +385,21 @@ async function startGrading(){
 
           function read(){
             reader.read().then(function(result){
-              if(result.done){ resolve(); return; }
+              if(result.done){
+                // done 이벤트 없이 스트림 종료된 경우 오류 처리
+                var alreadyResolved = gradingResults.some(function(r){
+                  return r.ok && r.data && r.data.studentName === answerFiles[i].name;
+                }) || gradingResults.some(function(r){
+                  return !r.ok && r.name === answerFiles[i].name;
+                });
+                if(!alreadyResolved){
+                  gradingResults.push({ok:false,name:answerFiles[i].name,error:'서버 응답이 불완전하게 종료됨'});
+                  gs.textContent='오류: 응답 불완전';
+                  gs.className='file-item-status s-err';
+                }
+                resolve();
+                return;
+              }
               buf += decoder.decode(result.value, {stream:true});
               var lines = buf.split('\n');
               buf = lines.pop();
@@ -401,19 +415,19 @@ async function startGrading(){
                     }
                   } else if(msg.type === 'done'){
                     var data=msg.payload;
-                    data.studentName=answerFiles[parseInt(gs.id.replace('gs_',''))].name;
+                    data.studentName=answerFiles[i].name;
                     gradingResults.push({ok:true,data:data});
                     var hasSe=data.setech&&data.setech.length>0;
                     gs.textContent='✓ '+data.total+'/'+totalMax+'점 ('+data.grade+')'+(hasSe?'':'  세특 없음');
                     gs.className='file-item-status s-done';
                     resolve();
                   } else if(msg.type === 'error'){
-                    gradingResults.push({ok:false,name:answerFiles[parseInt(gs.id.replace('gs_',''))].name,error:msg.payload});
-                    gs.textContent='오류: '+msg.payload.slice(0,20);
+                    gradingResults.push({ok:false,name:answerFiles[i].name,error:msg.payload});
+                    gs.textContent='오류: '+String(msg.payload).slice(0,20);
                     gs.className='file-item-status s-err';
                     resolve();
                   }
-                }catch(e){}
+                }catch(parseErr){}
               });
               read();
             }).catch(function(e){
