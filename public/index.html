@@ -118,12 +118,12 @@
 <body>
 <div class="layout">
   <aside class="sidebar">
-    <div class="logo"><div class="logo-dot"></div>Essay Grader</div>
+    <div class="logo"><div class="logo-dot"></div>AI 채점기</div>
     <button class="nav-item active" id="nav0" onclick="goTab(0)"><span class="nav-num">1</span> 루브릭 PDF</button>
     <button class="nav-item" id="nav1" onclick="goTab(1)"><span class="nav-num">2</span> 과제 설정</button>
     <button class="nav-item" id="nav2" onclick="goTab(2)"><span class="nav-num">3</span> 답안 업로드</button>
     <button class="nav-item" id="nav3" onclick="goTab(3)"><span class="nav-num">4</span> 채점 결과</button>
-    <div class="sidebar-footer">API 키는 서버에서<br>안전하게 관리됩니다.<br><br>Powered by Gemini 2.5 Flash</div>
+    <div class="sidebar-footer">제주고등학교</div>
   </aside>
 
   <main class="main">
@@ -183,9 +183,18 @@
       </div>
       <div class="card">
         <div class="card-title">과제 정보</div>
-        <div class="form-row"><label>과목 / 과제명</label><input type="text" id="subject" placeholder="예: 중학교 사회 — 산업화의 영향"></div>
-        <div class="form-row"><label>문제</label><textarea id="question" rows="4" placeholder="학생이 답해야 할 문제를 입력하세요..."></textarea></div>
-        <div class="form-row" style="margin-bottom:0"><label>모범 답안 <span style="font-weight:400;color:var(--text3)">(선택)</span></label><textarea id="modelAnswer" rows="3" placeholder="없으면 PDF 루브릭 기준으로만 채점합니다..."></textarea></div>
+        <div class="form-row">
+          <label>과목 / 과제명 <span style="font-weight:400;color:var(--text3)">(선택 — 엑셀 파일명으로 사용됨)</span></label>
+          <input type="text" id="subject" placeholder="예: 중학교 사회 — 산업화의 영향 · 입력하지 않으면 '채점결과'로 저장됩니다">
+        </div>
+        <div class="form-row">
+          <label>문제 <span style="font-weight:400;color:var(--text3)">(선택 — AI 채점 정확도 향상에 활용됨)</span></label>
+          <textarea id="question" rows="4" placeholder="학생이 답해야 할 문제를 입력하면 채점 정확도가 높아집니다.&#10;루브릭 PDF에 문제가 포함되어 있다면 비워두어도 됩니다."></textarea>
+        </div>
+        <div class="form-row" style="margin-bottom:0">
+          <label>모범 답안 <span style="font-weight:400;color:var(--text3)">(선택 — 채점 시 비교 기준으로 활용됨)</span></label>
+          <textarea id="modelAnswer" rows="3" placeholder="모범 답안을 입력하면 AI가 비교 기준으로 활용합니다.&#10;없으면 루브릭 PDF 기준으로만 채점합니다."></textarea>
+        </div>
       </div>
       <div class="btn-row"><button class="btn" onclick="goTab(0)">← 이전</button><button class="btn btn-primary" onclick="goTab(2)">답안 업로드 →</button></div>
     </div>
@@ -345,7 +354,6 @@ function removeAnswer(i){answerFiles.splice(i,1);renderAnswerList()}
 // ── 채점 실행 ──
 async function startGrading(){
   if(!rubricBase64||!parsedRubrics.length){alert('루브릭 PDF를 먼저 추출해주세요.');return}
-  if(!document.getElementById('question').value.trim()){alert('과제 설정 탭에서 문제를 입력해주세요.');return}
   gradingResults=[];
   goTab(3);
   var total=answerFiles.length;

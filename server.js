@@ -107,7 +107,7 @@ app.post('/api/grade', async function(req, res) {
   var rubrics         = req.body.rubrics;
 
   if (!pdfBase64 || !rubrics || !rubrics.length)
-    return res.status(400).json({ error: '필수 항목 누락' });
+    return res.status(400).json({ error: '필수 항목 누락 (루브릭 PDF, 루브릭 항목)' });
   if (!answerPdfBase64)
     return res.status(400).json({ error: '답안 PDF 필요' });
 
@@ -151,7 +151,7 @@ app.post('/api/grade', async function(req, res) {
       '당신은 교육 평가 전문가입니다. 첨부된 두 PDF(①채점 기준, ②학생 답안)를 분석하여 채점하세요.\n\n' +
       '[평가 대상]\n' +
       (studentName ? '학생: ' + studentName + '\n' : '') +
-      '문제: ' + question + '\n\n' +
+      (question ? '문제: ' + question + '\n\n' : '문제: ①번 PDF(채점 기준)에 포함된 문제를 참고하세요.\n\n') +
       (modelAnswer ? '[모범 답안]\n' + modelAnswer + '\n\n' : '') +
       '[채점 루브릭 — 총 ' + totalMax + '점]\n' +
       rubricDetail + '\n\n' +
@@ -170,7 +170,7 @@ app.post('/api/grade', async function(req, res) {
 
     var setechPrompt =
       '당신은 교과 담당 교사입니다. 첨부된 학생의 수행평가 답안을 바탕으로 학교생활기록부 교과 세부능력 및 특기사항(세특)을 작성하세요.\n\n' +
-      '[수행평가 문제]\n' + question + '\n\n' +
+      '[수행평가 문제]\n' + (question || '첨부된 답안 PDF의 문제 내용을 참고하세요.') + '\n\n' +
       '[학생 답안 — 첨부 PDF 참고]\n\n' +
       '[세특 작성 원칙]\n' +
       '- 단순 활동 나열이 아닌, 답안에서 드러난 학생의 사고 과정과 역량을 교사가 포착하여 기술하세요.\n' +
