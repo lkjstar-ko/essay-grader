@@ -75,20 +75,14 @@ app.post('/api/parse', async function(req, res) {
       { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } },
       { text: prompt }
     ];
-    var result;
-    try {
-      result = await callGemini(URL_PRO, parts, true);
-    } catch (proErr) {
-      console.log('Pro 모델 실패, Flash로 폴백:', proErr.message);
-      result = await callGemini(URL_FLASH, parts, true);
-    }
+    var result = await callGemini(URL_PRO, parts, true);
     res.json(result);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// ── /api/grade : 채점 (Flash 모델) ──
+// ── /api/grade : 채점 (SSE — 단계별 실시간 진행 상태 전송) ──
 app.post('/api/grade', async function(req, res) {
   try {
     var pdfBase64       = req.body.pdfBase64;
@@ -103,7 +97,113 @@ app.post('/api/grade', async function(req, res) {
     if (!answerPdfBase64)
       return res.status(400).json({ error: '답안 PDF 필요' });
 
+    // SSE 헤더
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    function send(type, data) {
+      res.write('data: ' + JSON.stringify({ type: type, payload: data }) + '\n\n');
+    }
+
     var totalMax = rubrics.reduce(function(s, r) { return s + r.max; }, 0);
+
+    var gradeGuide =
+      '등급 기준 (총점 ' + totalMax + '점 기준):\n' +
+      '  A+: ' + Math.round(totalMax * 0.95) + '점 이상\n' +
+      '  A:  ' + Math.round(totalMax * 0.90) + '점 이상\n' +
+      '  B+: ' + Math.round(totalMax * 0.85) + '점 이상\n' +
+      '  B:  ' + Math.round(totalMax * 0.80) + '점 이상\n' +
+      '  C+: ' + Math.round(totalMax * 0.70) + '점 이상\n' +
+      '  C:  ' + Math.round(totalMax * 0.60) + '점 이상\n' +
+      '  D:  ' + Math.round(totalMax * 0.50) + '점 이상\n' +
+      '  F:  ' + Math.round(totalMax * 0.50) + '점 미만';
+
+    var rubricDetail = rubrics.map(function(r, i) {
+      var criteriaStr = '';
+      if (r.criteria && r.criteria.length) {
+        criteriaStr = '\n   수준별 기준:\n' + r.criteria.map(function(c) {
+          return '   - ' + c.level + '(' + c.score + '점): ' + c.desc;
+        }).join('\n');
+      } else {
+        criteriaStr = '\n   (수준별 기준 없음 — ' + r.min + '~' + r.max + '점 범위 내 자유 부여)';
+      }
+      return (i + 1) + '. [' + r.name + '] ' + r.min + '~' + r.max + '점\n' +
+             '   평가 기준: ' + (r.description || '') + criteriaStr;
+    }).join('\n\n');
+
+    var gradingPrompt =
+      '당신은 교육 평가 전문가입니다. 첨부된 두 PDF(①채점 기준, ②학생 답안)를 분석하여 채점하세요.\n\n' +
+      '[평가 대상]\n' +
+      (studentName ? '학생: ' + studentName + '\n' : '') +
+      '문제: ' + question + '\n\n' +
+      (modelAnswer ? '[모범 답안]\n' + modelAnswer + '\n\n' : '') +
+      '[채점 루브릭 — 총 ' + totalMax + '점]\n' +
+      rubricDetail + '\n\n' +
+      '[채점 지침]\n' +
+      '1. ②번 PDF의 학생 답안 전체를 꼼꼼히 읽으세요.\n' +
+      '2. 각 루브릭 항목별로 답안의 관련 내용을 찾아 대조하세요.\n' +
+      '3. 수준별 기준이 있으면 기준에 맞는 수준을 찾아 해당 점수를 부여하세요.\n' +
+      '   수준별 기준이 없으면 답안의 완성도에 따라 min~max 범위 내에서 점수를 부여하세요.\n' +
+      '4. 점수는 관대하게 주지 말고 루브릭 기준에 근거하여 엄격하게 판단하세요.\n' +
+      '5. 점수는 반드시 각 항목의 min 이상 max 이하여야 합니다.\n' +
+      '6. 피드백은 답안의 구체적 내용을 언급하며 잘한 점과 개선점을 2~3문장으로 서술하세요.\n\n' +
+      gradeGuide + '\n\n' +
+      '반드시 아래 JSON만 출력하세요:\n' +
+      '{"rubrics":[{"name":"항목명","min":최저점,"max":최고점,"score":부여점수,"feedback":"피드백 2~3문장"}],' +
+      '"total":합계점수,"totalMax":' + totalMax + ',"grade":"등급"}';
+
+    var setechPrompt =
+      '당신은 교과 담당 교사입니다. 아래 학생의 수행평가 답안을 바탕으로 학교생활기록부 교과 세부능력 및 특기사항(세특)을 작성하세요.\n\n' +
+      '[수행평가 문제]\n' + question + '\n\n' +
+      '[학생 답안 — 첨부 PDF 참고]\n\n' +
+      '[세특 작성 원칙]\n' +
+      '- 단순 활동 나열이 아닌, 답안에서 드러난 학생의 사고 과정과 역량을 교사가 포착하여 기술하세요.\n' +
+      '- 성찰 역량화: 어려움은 끈기로, 흥미는 학습 호기심으로 변환하여 기술하세요.\n' +
+      '- 분량: 공백 포함 500byte 이내, 한 개의 문단으로 작성하세요.\n' +
+      '- 수치, 백분율(%), 괄호()와 그 내용을 모두 제외하세요.\n' +
+      '- 어미: ~함, ~보임, ~구현함 등 교사의 관찰자 시점을 유지하세요.\n' +
+      '- 금지 표현: 학생은/학생이/학생 이름 등 학생 직접 지칭.\n' +
+      '- 금지 표현: 체득함, 느꼈음, 이해함, 알게 됨, 깨달음, ~을 느낌 등 내면 묘사.\n' +
+      '- 허용 표현: 이해도가 높음, 태도가 돋보임, 역량을 발휘함 등 관찰 가능한 표현.\n' +
+      '- 외래어는 필수 용어 외 지양, 동일 단어 반복 금지.\n' +
+      '- 학생의 발전 가능성이 드러나도록 긍정적으로 서술하세요.\n\n' +
+      '세특 문구만 출력하세요. JSON이나 다른 형식 없이 순수 텍스트로만.';
+
+    var gradeParts = [
+      { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } },
+      { inline_data: { mime_type: 'application/pdf', data: answerPdfBase64 } },
+      { text: gradingPrompt }
+    ];
+    var setechParts = [
+      { inline_data: { mime_type: 'application/pdf', data: answerPdfBase64 } },
+      { text: setechPrompt }
+    ];
+
+    // 1단계: 채점
+    send('progress', { step: 'grading', message: '① 답안 채점 중...' });
+    var gradeResult = await callGemini(URL_FLASH, gradeParts, true);
+    gradeResult.setech = '';
+
+    // 2단계: 세특 작성
+    send('progress', { step: 'setech', message: '② 세특 작성 중...' });
+    try {
+      var setechText = await callGemini(URL_FLASH, setechParts, false);
+      gradeResult.setech = typeof setechText === 'string' ? setechText.trim() : '';
+    } catch (e) {
+      console.log('세특 작성 실패:', e.message);
+      gradeResult.setech = '';
+    }
+
+    // 완료
+    send('done', gradeResult);
+    res.end();
+
+  } catch (e) {
+    res.write('data: ' + JSON.stringify({ type: 'error', payload: e.message }) + '\n\n');
+    res.end();
+  }
+});
 
     // 등급 기준 계산 (총점 대비 비율)
     var gradeGuide =
@@ -181,16 +281,22 @@ app.post('/api/grade', async function(req, res) {
       { text: setechPrompt }
     ];
 
-    // 채점과 세특을 병렬 처리 (속도 향상)
-    var results = await Promise.all([
-      callGemini(URL_FLASH, gradeParts, true),
-      callGemini(URL_FLASH, setechParts, false).catch(function() { return ''; })
-    ]);
+    // 1단계: 채점 먼저
+    var gradeResult = await callGemini(URL_FLASH, gradeParts, true);
+    gradeResult.setech = '';
+    gradeResult.setechDone = false;
 
-    var gradeResult  = results[0];
-    var setechResult = typeof results[1] === 'string' ? results[1].trim() : '';
+    // 2단계: 세특 작성
+    try {
+      var setechText = await callGemini(URL_FLASH, setechParts, false);
+      gradeResult.setech = typeof setechText === 'string' ? setechText.trim() : '';
+      gradeResult.setechDone = true;
+    } catch (setechErr) {
+      console.log('세특 작성 실패:', setechErr.message);
+      gradeResult.setech = '';
+      gradeResult.setechDone = false;
+    }
 
-    gradeResult.setech = setechResult;
     res.json(gradeResult);
 
   } catch (e) {

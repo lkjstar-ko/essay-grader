@@ -118,12 +118,12 @@
 <body>
 <div class="layout">
   <aside class="sidebar">
-    <div class="logo"><div class="logo-dot"></div>서술형 채점기</div>
+    <div class="logo"><div class="logo-dot"></div>Essay Grader</div>
     <button class="nav-item active" id="nav0" onclick="goTab(0)"><span class="nav-num">1</span> 루브릭 PDF</button>
     <button class="nav-item" id="nav1" onclick="goTab(1)"><span class="nav-num">2</span> 과제 설정</button>
     <button class="nav-item" id="nav2" onclick="goTab(2)"><span class="nav-num">3</span> 답안 업로드</button>
     <button class="nav-item" id="nav3" onclick="goTab(3)"><span class="nav-num">4</span> 채점 결과</button>
-    <div class="sidebar-footer">제주고등학교</div>
+    <div class="sidebar-footer">API 키는 서버에서<br>안전하게 관리됩니다.<br><br>Powered by Gemini 2.5 Flash</div>
   </aside>
 
   <main class="main">
@@ -359,29 +359,79 @@ async function startGrading(){
   document.getElementById('resultSection').style.display='none';
   document.getElementById('resultSub').textContent='채점 진행 중...';
   document.getElementById('gradingItems').innerHTML=answerFiles.map(function(f,i){
-    return '<div class="file-item" id="gi_'+i+'"><span style="font-size:14px">📄</span><span class="file-item-name">'+f.name+'</span><span class="file-item-status s-wait" id="gs_'+i+'">대기중</span></div>';
+    return '<div class="file-item" id="gi_'+i+'">'
+      +'<span style="font-size:14px">📄</span>'
+      +'<span class="file-item-name">'+f.name+'</span>'
+      +'<span class="file-item-status s-wait" id="gs_'+i+'">대기중</span>'
+      +'</div>';
   }).join('');
+
   for(var i=0;i<answerFiles.length;i++){
     updateProgress(i,total);
     var gs=document.getElementById('gs_'+i);
-    gs.textContent='채점중...';gs.className='file-item-status s-run';
-    try{
-      var res=await fetch('/api/grade',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+
+    await new Promise(function(resolve) {
+      var body=JSON.stringify({
         pdfBase64:rubricBase64,answerPdfBase64:answerFiles[i].base64,
         question:question,modelAnswer:modelAnswer,
         studentName:answerFiles[i].name,rubrics:parsedRubrics
-      })});
-      var data=await res.json();
-      if(data.error)throw new Error(data.error);
-      data.studentName=answerFiles[i].name;
-      gradingResults.push({ok:true,data:data});
-      gs.textContent='완료 '+data.total+'/'+totalMax+'점 ('+data.grade+')';
-      gs.className='file-item-status s-done';
-    }catch(e){
-      gradingResults.push({ok:false,name:answerFiles[i].name,error:e.message});
-      gs.textContent='오류: '+e.message.slice(0,20);
-      gs.className='file-item-status s-err';
-    }
+      });
+
+      fetch('/api/grade',{method:'POST',headers:{'Content-Type':'application/json'},body:body})
+        .then(function(res){
+          var reader=res.body.getReader();
+          var decoder=new TextDecoder();
+          var buf='';
+
+          function read(){
+            reader.read().then(function(result){
+              if(result.done){ resolve(); return; }
+              buf += decoder.decode(result.value, {stream:true});
+              var lines = buf.split('\n');
+              buf = lines.pop();
+              lines.forEach(function(line){
+                if(!line.startsWith('data: ')) return;
+                try{
+                  var msg = JSON.parse(line.slice(6));
+                  if(msg.type === 'progress'){
+                    if(msg.payload.step === 'grading'){
+                      gs.textContent='① 채점 중...';gs.className='file-item-status s-run';
+                    } else if(msg.payload.step === 'setech'){
+                      gs.textContent='② 세특 작성 중...';gs.className='file-item-status s-run';
+                    }
+                  } else if(msg.type === 'done'){
+                    var data=msg.payload;
+                    data.studentName=answerFiles[parseInt(gs.id.replace('gs_',''))].name;
+                    gradingResults.push({ok:true,data:data});
+                    var hasSe=data.setech&&data.setech.length>0;
+                    gs.textContent='✓ '+data.total+'/'+totalMax+'점 ('+data.grade+')'+(hasSe?'':'  세특 없음');
+                    gs.className='file-item-status s-done';
+                    resolve();
+                  } else if(msg.type === 'error'){
+                    gradingResults.push({ok:false,name:answerFiles[parseInt(gs.id.replace('gs_',''))].name,error:msg.payload});
+                    gs.textContent='오류: '+msg.payload.slice(0,20);
+                    gs.className='file-item-status s-err';
+                    resolve();
+                  }
+                }catch(e){}
+              });
+              read();
+            }).catch(function(e){
+              gradingResults.push({ok:false,name:answerFiles[i].name,error:e.message});
+              gs.textContent='오류: '+e.message.slice(0,20);
+              gs.className='file-item-status s-err';
+              resolve();
+            });
+          }
+          read();
+        })
+        .catch(function(e){
+          gradingResults.push({ok:false,name:answerFiles[i].name,error:e.message});
+          gs.textContent='오류: '+e.message.slice(0,20);
+          gs.className='file-item-status s-err';
+          resolve();
+        });
+    });
   }
   updateProgress(total,total);
   var okCount=gradingResults.filter(function(r){return r.ok}).length;
