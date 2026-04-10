@@ -243,6 +243,7 @@
         <div class="result-tabs">
           <button class="result-tab active" onclick="switchResultTab(0)">점수표</button>
           <button class="result-tab" onclick="switchResultTab(1)">세특 문구</button>
+          <button class="result-tab" onclick="switchResultTab(2)">항목별 피드백</button>
         </div>
 
         <!-- 점수표 -->
@@ -256,6 +257,11 @@
         <!-- 세특 문구 -->
         <div class="result-pane" id="rpane1">
           <div id="setechList"></div>
+        </div>
+
+        <!-- 항목별 피드백 -->
+        <div class="result-pane" id="rpane2">
+          <div id="feedbackList"></div>
         </div>
       </div>
     </div>
@@ -421,6 +427,7 @@ async function startGrading(){
   document.getElementById('nav3').classList.add('done');
   renderResultTable();
   renderSetechList();
+  renderFeedbackList();
 }
 
 function updateProgress(done,total){
@@ -480,6 +487,38 @@ function renderSetechList(){
       +'</div></div>'
       +'<div class="setech-text" id="setech_'+i+'">'+setech+'</div>'
       +'<div class="setech-byte">'+bytes+' byte / 500 byte'+(bytes>500?' ⚠ 초과':'')+'</div>'
+      +'</div>';
+  }).join('');
+}
+
+function renderFeedbackList(){
+  var ok=gradingResults.filter(function(r){return r.ok});
+  document.getElementById('feedbackList').innerHTML=ok.map(function(r){
+    var d=r.data;
+    var pct=Math.round((d.total/totalMax)*100);
+    var gc=pct>=90?'ga':pct>=70?'gbb':pct>=50?'gc':'gd';
+    var rubrics=d.rubrics||[];
+    return '<div class="setech-card">'
+      +'<div class="setech-header">'
+      +'<span class="setech-name"><strong>'+d.studentName+'</strong></span>'
+      +'<div style="display:flex;align-items:center;gap:8px">'
+      +'<span class="setech-score">'+d.total+'/'+totalMax+'점</span>'
+      +'<span class="gb '+gc+'">'+d.grade+'</span>'
+      +'</div></div>'
+      +'<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px">'
+      +'<thead><tr style="background:var(--surface2)">'
+      +'<th style="padding:6px 8px;text-align:left;border:1px solid var(--border);width:30%">항목</th>'
+      +'<th style="padding:6px 8px;text-align:center;border:1px solid var(--border);width:10%">점수</th>'
+      +'<th style="padding:6px 8px;text-align:left;border:1px solid var(--border)">피드백</th>'
+      +'</tr></thead><tbody>'
+      +rubrics.map(function(rub){
+        return '<tr>'
+          +'<td style="padding:6px 8px;border:1px solid var(--border);font-weight:500;color:var(--text)">'+rub.name+'</td>'
+          +'<td style="padding:6px 8px;border:1px solid var(--border);text-align:center;font-family:\'DM Mono\',monospace;color:var(--accent)">'+rub.score+'/'+rub.max+'</td>'
+          +'<td style="padding:6px 8px;border:1px solid var(--border);color:var(--text2);line-height:1.6">'+(rub.feedback||'—')+'</td>'
+          +'</tr>';
+      }).join('')
+      +'</tbody></table>'
       +'</div>';
   }).join('');
 }

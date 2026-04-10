@@ -171,8 +171,37 @@ app.post('/api/grade', async function(req, res) {
       { text: setechPrompt }
     ];
 
-    // 채점
-    var gradeResult = await callGemini(URL_FLASH, gradeParts, true);
+    // 채점 3회 반복 후 평균
+    var gradeResults = [];
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        var r = await callGemini(URL_FLASH, gradeParts, true);
+        gradeResults.push(r);
+      } catch (e) {
+        console.log('채점 시도 ' + (attempt + 1) + ' 실패:', e.message);
+      }
+    }
+    if (!gradeResults.length) throw new Error('채점 3회 모두 실패');
+
+    // 항목별 점수 평균 계산
+    var gradeResult = JSON.parse(JSON.stringify(gradeResults[0]));
+    if (gradeResults.length > 1) {
+      gradeResult.rubrics = gradeResult.rubrics.map(function(rub, ri) {
+        var scores = gradeResults.map(function(r) {
+          return (r.rubrics && r.rubrics[ri]) ? (r.rubrics[ri].score || 0) : 0;
+        });
+        var avg = scores.reduce(function(s, v) { return s + v; }, 0) / scores.length;
+        // 반올림 후 min~max 범위 보정
+        rub.score = Math.min(rub.max, Math.max(rub.min, Math.round(avg)));
+        return rub;
+      });
+      gradeResult.total = gradeResult.rubrics.reduce(function(s, r) { return s + r.score; }, 0);
+      // 평균 총점 기준 등급 재계산
+      var pct = gradeResult.total / totalMax;
+      gradeResult.grade = pct >= 0.95 ? 'A+' : pct >= 0.90 ? 'A' : pct >= 0.85 ? 'B+' :
+                          pct >= 0.80 ? 'B'  : pct >= 0.70 ? 'C+': pct >= 0.60 ? 'C'  :
+                          pct >= 0.50 ? 'D'  : 'F';
+    }
     gradeResult.setech = '';
 
     // 세특
