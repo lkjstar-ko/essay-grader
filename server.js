@@ -9,10 +9,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const KEY = process.env.GEMINI_API_KEY;
 const BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
 
-// 루브릭 추출: Pro 모델 (정밀한 기준 파악)
 const URL_PRO   = BASE + 'gemini-2.5-pro:generateContent?key=' + KEY;
-
-// 채점: Flash 모델 (비용 효율)
 const URL_FLASH = BASE + 'gemini-2.5-flash:generateContent?key=' + KEY;
 
 async function callGemini(url, parts, jsonMode) {
@@ -41,21 +38,50 @@ app.post('/api/parse', async function(req, res) {
     if (!pdfBase64) return res.status(400).json({ error: 'pdfBase64 필요' });
 
     var prompt =
-      '당신은 교육 평가 전문가입니다. 첨부된 PDF에서 채점 루브릭을 정밀하게 분석하여 추출하세요.\n\n' +
-      '추출 원칙:\n' +
-      '1. 각 평가 항목의 이름을 정확히 파악하세요.\n' +
-      '2. 각 항목의 최저점(min)과 최고점(max)을 PDF에 명시된 그대로 추출하세요. 임의로 변환하지 마세요.\n' +
-      '3. 각 항목이 실제로 무엇을 평가하는지 구체적인 기준을 description에 서술하세요.\n' +
-      '   예) "논리적 구성"이 아니라 "주장의 근거 제시 여부, 논리적 흐름의 일관성, 결론 도출의 타당성" 처럼 구체적으로\n' +
-      '4. PDF에 수준별 기술어(예: 상/중/하, A/B/C/D)가 있으면 criteria 배열로 포함하세요.\n\n' +
-      '반드시 아래 JSON만 출력하세요:\n' +
-      '{"rubrics":[{"name":"항목명","min":최저점숫자,"max":최고점숫자,"description":"이 항목이 평가하는 구체적 기준","criteria":[{"level":"수준명","score":점수,"desc":"해당 수준 기술어"}]}],"totalMin":최저점합계,"totalMax":최고점합계,"notes":"루브릭 특이사항"}';
+      '당신은 교육 평가 전문가입니다. 첨부된 PDF의 채점 기준을 분석하여 루브릭을 추출하세요.\n\n' +
+
+      '[1단계: PDF 구조 파악]\n' +
+      '아래 다양한 형태 중 어떤 구조인지 먼저 파악하세요:\n' +
+      '- 표(Table) 형태: 행=평가항목, 열=수준/점수 또는 행=수준, 열=항목\n' +
+      '- 텍스트 서술형: 항목과 기준을 문장으로 설명\n' +
+      '- 체크리스트형: 항목별 O/X 또는 이행/미이행 구조\n' +
+      '- 계층형: 대항목 아래 소항목이 있는 구조\n' +
+      '- 혼합형: 위 형태들이 섞인 구조\n\n' +
+
+      '[2단계: 공통 추출 원칙]\n' +
+      '구조와 관계없이 아래 원칙으로 추출하세요:\n' +
+      '1. 평가 항목(name): PDF에 명시된 항목명 그대로 사용. 계층형이면 "대항목 > 소항목" 형태로.\n' +
+      '2. 배점(min/max): PDF에 명시된 값 그대로. 단, 아래 예외 처리:\n' +
+      '   - 배점 없이 등급만 있는 경우(A/B/C/D): 등급 수에 따라 max를 4/3점 단위로 배분\n' +
+      '   - 총점만 있고 항목별 배점이 없는 경우: 항목 수로 균등 배분\n' +
+      '   - 이행/미이행(O/X)형: min=0, max=1\n' +
+      '   - 배점 범위가 있는 경우(예: 8~10점): min=8, max=10으로 추출\n' +
+      '3. 평가 기준(description): 해당 항목이 무엇을 평가하는지 구체적으로 서술.\n' +
+      '   단순 항목명 반복 금지. PDF에 기술어가 있으면 그 내용을 바탕으로 서술.\n' +
+      '4. 수준별 기술어(criteria): PDF에 상/중/하, A/B/C/D 등 수준 구분이 있으면 추출.\n' +
+      '   없으면 criteria를 빈 배열([])로 설정.\n' +
+      '5. 항목이 계층형인 경우 소항목 단위로 분리하여 추출.\n\n' +
+
+      '[3단계: 검증]\n' +
+      '추출 후 아래를 확인하세요:\n' +
+      '- totalMax가 PDF의 총점과 일치하는가?\n' +
+      '- 누락된 항목은 없는가?\n' +
+      '- min <= max 인가?\n\n' +
+
+      '반드시 아래 JSON만 출력하세요 (다른 텍스트 없이):\n' +
+      '{"rubrics":[{"name":"항목명","min":최저점숫자,"max":최고점숫자,"description":"구체적 평가 기준 서술","criteria":[{"level":"수준명","score":점수숫자,"desc":"수준 기술어"}]}],"totalMin":최저점합계,"totalMax":최고점합계,"notes":"PDF 구조 유형 및 특이사항"}';
 
     var parts = [
       { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } },
       { text: prompt }
     ];
-    var result = await callGemini(URL_PRO, parts, true);
+    var result;
+    try {
+      result = await callGemini(URL_PRO, parts, true);
+    } catch (proErr) {
+      console.log('Pro 모델 실패, Flash로 폴백:', proErr.message);
+      result = await callGemini(URL_FLASH, parts, true);
+    }
     res.json(result);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -79,56 +105,94 @@ app.post('/api/grade', async function(req, res) {
 
     var totalMax = rubrics.reduce(function(s, r) { return s + r.max; }, 0);
 
-    // 루브릭 상세 정보 구성 (Pro가 추출한 criteria 포함)
+    // 등급 기준 계산 (총점 대비 비율)
+    var gradeGuide =
+      '등급 기준 (총점 ' + totalMax + '점 기준):\n' +
+      '  A+: ' + Math.round(totalMax * 0.95) + '점 이상\n' +
+      '  A:  ' + Math.round(totalMax * 0.90) + '점 이상\n' +
+      '  B+: ' + Math.round(totalMax * 0.85) + '점 이상\n' +
+      '  B:  ' + Math.round(totalMax * 0.80) + '점 이상\n' +
+      '  C+: ' + Math.round(totalMax * 0.70) + '점 이상\n' +
+      '  C:  ' + Math.round(totalMax * 0.60) + '점 이상\n' +
+      '  D:  ' + Math.round(totalMax * 0.50) + '점 이상\n' +
+      '  F:  ' + Math.round(totalMax * 0.50) + '점 미만';
+
+    // 루브릭 상세 정보 구성
     var rubricDetail = rubrics.map(function(r, i) {
       var criteriaStr = '';
       if (r.criteria && r.criteria.length) {
         criteriaStr = '\n   수준별 기준:\n' + r.criteria.map(function(c) {
           return '   - ' + c.level + '(' + c.score + '점): ' + c.desc;
         }).join('\n');
+      } else {
+        criteriaStr = '\n   (수준별 기준 없음 — ' + r.min + '~' + r.max + '점 범위 내에서 답안 수준에 따라 부여)';
       }
-      return (i + 1) + '. ' + r.name + ' [' + r.min + '~' + r.max + '점]\n' +
+      return (i + 1) + '. [' + r.name + '] ' + r.min + '~' + r.max + '점\n' +
              '   평가 기준: ' + (r.description || '') + criteriaStr;
     }).join('\n\n');
 
-    var setechConditions =
-      '세특 작성 원칙:\n' +
-      '- 교과 담당 교사 시점으로 학생의 역량을 관찰자 입장에서 기술하세요.\n' +
-      '- 답안에서 드러난 학생의 구체적 사고 과정과 역량을 포착하여 기술하세요.\n' +
-      '- 성찰의 역량화: 부족한 부분은 성장 가능성으로, 잘한 부분은 구체적 역량으로 변환하세요.\n' +
-      '- 분량: 공백 포함 500byte 이내, 한 개의 문단.\n' +
-      '- 수치, 백분율, 괄호와 그 내용 모두 제외.\n' +
-      '- 어미: ~함, ~보임, ~구현함 등 관찰자 시점 유지.\n' +
-      '- 금지: 학생은/학생이/학생 이름 등 학생 직접 지칭 표현.\n' +
-      '- 금지: 체득함, 느꼈음, 이해함, 알게 됨, 깨달음, ~을 느낌 등 내면 묘사.\n' +
-      '- 허용: 이해도가 높음, 태도가 돋보임, 역량을 발휘함 등 관찰 가능한 표현.\n' +
-      '- 외래어 최소화, 동일 단어 반복 금지.\n' +
-      '- 학생의 발전 가능성이 드러나도록 긍정적으로 서술.';
-
-    var prompt =
+    // ── 채점 프롬프트 (채점에만 집중) ──
+    var gradingPrompt =
       '당신은 교육 평가 전문가입니다. 첨부된 두 PDF(①채점 기준, ②학생 답안)를 분석하여 채점하세요.\n\n' +
-      '[문제]\n' + question + '\n\n' +
+      '[평가 대상]\n' +
+      (studentName ? '학생: ' + studentName + '\n' : '') +
+      '문제: ' + question + '\n\n' +
       (modelAnswer ? '[모범 답안]\n' + modelAnswer + '\n\n' : '') +
       '[채점 루브릭 — 총 ' + totalMax + '점]\n' +
       rubricDetail + '\n\n' +
       '[채점 지침]\n' +
-      '1. 학생 답안을 꼼꼼히 읽고 각 루브릭 항목별로 관련 내용을 분석하세요.\n' +
-      '2. 점수는 루브릭의 수준별 기준에 근거하여 부여하세요. 최저점~최고점 범위를 반드시 지키세요.\n' +
-      '3. 피드백은 답안의 구체적 내용을 언급하며 잘한 점과 개선점을 2~3문장으로 서술하세요.\n' +
-      '4. 루브릭 기준에 엄격하게 근거하여 채점하세요.\n\n' +
-      setechConditions + '\n\n' +
+      '1. ②번 PDF의 학생 답안 전체를 꼼꼼히 읽으세요.\n' +
+      '2. 각 루브릭 항목별로 답안의 관련 내용을 찾아 대조하세요.\n' +
+      '3. 수준별 기준이 있으면 기준에 맞는 수준을 찾아 해당 점수를 부여하세요.\n' +
+      '   수준별 기준이 없으면 답안의 완성도에 따라 min~max 범위 내에서 점수를 부여하세요.\n' +
+      '4. 점수는 관대하게 주지 말고 루브릭 기준에 근거하여 엄격하게 판단하세요.\n' +
+      '5. 점수는 반드시 각 항목의 min 이상 max 이하여야 합니다.\n' +
+      '6. 피드백은 답안의 구체적 내용을 언급하며 잘한 점과 개선점을 2~3문장으로 서술하세요.\n\n' +
+      gradeGuide + '\n\n' +
       '반드시 아래 JSON만 출력하세요:\n' +
       '{"rubrics":[{"name":"항목명","min":최저점,"max":최고점,"score":부여점수,"feedback":"피드백 2~3문장"}],' +
-      '"total":합계점수,"totalMax":' + totalMax + ',"grade":"등급(A+/A/B+/B/C+/C/D/F)",' +
-      '"setech":"세특 문구 (500byte 이내 한 문단)"}';
+      '"total":합계점수,"totalMax":' + totalMax + ',"grade":"등급"}';
 
-    var parts = [
+    // ── 세특 프롬프트 (세특에만 집중) ──
+    var setechPrompt =
+      '당신은 교과 담당 교사입니다. 아래 학생의 수행평가 답안을 바탕으로 학교생활기록부 교과 세부능력 및 특기사항(세특)을 작성하세요.\n\n' +
+      '[수행평가 문제]\n' + question + '\n\n' +
+      '[학생 답안 — 두 번째 첨부 PDF 참고]\n\n' +
+      '[세특 작성 원칙]\n' +
+      '- 단순 활동 나열이 아닌, 답안에서 드러난 학생의 사고 과정과 역량을 교사가 포착하여 기술하세요.\n' +
+      '- 성찰 역량화: 어려움은 끈기로, 흥미는 학습 호기심으로 변환하여 기술하세요.\n' +
+      '- 분량: 공백 포함 500byte 이내, 한 개의 문단으로 작성하세요.\n' +
+      '- 수치, 백분율(%), 괄호()와 그 내용을 모두 제외하세요.\n' +
+      '- 어미: ~함, ~보임, ~구현함 등 교사의 관찰자 시점을 유지하세요.\n' +
+      '- 금지 표현: 학생은/학생이/학생 이름 등 학생 직접 지칭.\n' +
+      '- 금지 표현: 체득함, 느꼈음, 이해함, 알게 됨, 깨달음, ~을 느낌 등 내면 묘사.\n' +
+      '- 허용 표현: 이해도가 높음, 태도가 돋보임, 역량을 발휘함 등 관찰 가능한 표현.\n' +
+      '- 외래어는 필수 용어 외 지양, 동일 단어 반복 금지.\n' +
+      '- 학생의 발전 가능성이 드러나도록 긍정적으로 서술하세요.\n\n' +
+      '세특 문구만 출력하세요. JSON이나 다른 형식 없이 순수 텍스트로만.';
+
+    var gradeParts = [
       { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } },
       { inline_data: { mime_type: 'application/pdf', data: answerPdfBase64 } },
-      { text: prompt }
+      { text: gradingPrompt }
     ];
-    var result = await callGemini(URL_FLASH, parts, true);
-    res.json(result);
+    var setechParts = [
+      { inline_data: { mime_type: 'application/pdf', data: answerPdfBase64 } },
+      { text: setechPrompt }
+    ];
+
+    // 채점과 세특을 병렬 처리 (속도 향상)
+    var results = await Promise.all([
+      callGemini(URL_FLASH, gradeParts, true),
+      callGemini(URL_FLASH, setechParts, false).catch(function() { return ''; })
+    ]);
+
+    var gradeResult  = results[0];
+    var setechResult = typeof results[1] === 'string' ? results[1].trim() : '';
+
+    gradeResult.setech = setechResult;
+    res.json(gradeResult);
+
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -138,5 +202,5 @@ var PORT = process.env.PORT || 3000;
 app.listen(PORT, function() {
   console.log('서버 실행중: http://localhost:' + PORT);
   console.log('API 키: ' + (KEY ? '로드됨' : '없음'));
-  console.log('모델: 루브릭 추출 → gemini-2.5-pro / 채점 → gemini-2.5-flash');
+  console.log('모델: 루브릭 추출 → gemini-2.5-pro / 채점+세특 → gemini-2.5-flash (병렬)');
 });
