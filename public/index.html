@@ -118,7 +118,7 @@
 <body>
 <div class="layout">
   <aside class="sidebar">
-    <div class="logo"><div class="logo-dot"></div>AI 채점기</div>
+    <div class="logo"><div class="logo-dot"></div>서술형 채점기</div>
     <button class="nav-item active" id="nav0" onclick="goTab(0)"><span class="nav-num">1</span> 루브릭 PDF</button>
     <button class="nav-item" id="nav1" onclick="goTab(1)"><span class="nav-num">2</span> 과제 설정</button>
     <button class="nav-item" id="nav2" onclick="goTab(2)"><span class="nav-num">3</span> 답안 업로드</button>
@@ -379,6 +379,14 @@ async function startGrading(){
     var gs=document.getElementById('gs_'+i);
 
     await new Promise(function(resolve) {
+      var resolved = false;
+      function done(result) {
+        if(resolved) return;
+        resolved = true;
+        gradingResults.push(result);
+        resolve();
+      }
+
       var body=JSON.stringify({
         pdfBase64:rubricBase64,answerPdfBase64:answerFiles[i].base64,
         question:question,modelAnswer:modelAnswer,
@@ -394,18 +402,11 @@ async function startGrading(){
           function read(){
             reader.read().then(function(result){
               if(result.done){
-                // done 이벤트 없이 스트림 종료된 경우 오류 처리
-                var alreadyResolved = gradingResults.some(function(r){
-                  return r.ok && r.data && r.data.studentName === answerFiles[i].name;
-                }) || gradingResults.some(function(r){
-                  return !r.ok && r.name === answerFiles[i].name;
-                });
-                if(!alreadyResolved){
-                  gradingResults.push({ok:false,name:answerFiles[i].name,error:'서버 응답이 불완전하게 종료됨'});
+                if(!resolved){
+                  done({ok:false,name:answerFiles[i].name,error:'서버 응답이 불완전하게 종료됨'});
                   gs.textContent='오류: 응답 불완전';
                   gs.className='file-item-status s-err';
                 }
-                resolve();
                 return;
               }
               buf += decoder.decode(result.value, {stream:true});
@@ -424,34 +425,30 @@ async function startGrading(){
                   } else if(msg.type === 'done'){
                     var data=msg.payload;
                     data.studentName=answerFiles[i].name;
-                    gradingResults.push({ok:true,data:data});
                     var hasSe=data.setech&&data.setech.length>0;
                     gs.textContent='✓ '+data.total+'/'+totalMax+'점 ('+data.grade+')'+(hasSe?'':'  세특 없음');
                     gs.className='file-item-status s-done';
-                    resolve();
+                    done({ok:true,data:data});
                   } else if(msg.type === 'error'){
-                    gradingResults.push({ok:false,name:answerFiles[i].name,error:msg.payload});
                     gs.textContent='오류: '+String(msg.payload).slice(0,20);
                     gs.className='file-item-status s-err';
-                    resolve();
+                    done({ok:false,name:answerFiles[i].name,error:msg.payload});
                   }
                 }catch(parseErr){}
               });
-              read();
+              if(!resolved) read();
             }).catch(function(e){
-              gradingResults.push({ok:false,name:answerFiles[i].name,error:e.message});
               gs.textContent='오류: '+e.message.slice(0,20);
               gs.className='file-item-status s-err';
-              resolve();
+              done({ok:false,name:answerFiles[i].name,error:e.message});
             });
           }
           read();
         })
         .catch(function(e){
-          gradingResults.push({ok:false,name:answerFiles[i].name,error:e.message});
           gs.textContent='오류: '+e.message.slice(0,20);
           gs.className='file-item-status s-err';
-          resolve();
+          done({ok:false,name:answerFiles[i].name,error:e.message});
         });
     });
   }
