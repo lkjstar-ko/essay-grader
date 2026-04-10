@@ -24,29 +24,15 @@ async function callGemini(url, parts, jsonMode) {
   if (data.error) throw new Error(data.error.message);
   var text = data.candidates[0].content.parts[0].text;
   if (!jsonMode) return text.trim();
-
-  // JSON 파싱: 마크다운 코드블록 제거 후 { 로 시작하는 부분만 추출
-  var clean = text.replace(/```json[\s\S]*?```/g, function(m) {
-    return m.replace(/```json\s*/,'').replace(/\s*```/,'');
-  }).replace(/```[\s\S]*?```/g, function(m) {
-    return m.replace(/```\s*/g,'');
-  }).trim();
-
-  // { 로 시작하는 위치부터 마지막 } 까지만 추출
+  var clean = text.trim();
   var start = clean.indexOf('{');
   var end = clean.lastIndexOf('}');
-  if (start !== -1 && end !== -1 && end > start) {
-    clean = clean.slice(start, end + 1);
-  }
-
-  try {
-    return JSON.parse(clean);
-  } catch (e) {
-    throw new Error('JSON 파싱 실패: ' + e.message + ' / 원문: ' + clean.slice(0, 100));
-  }
+  if (start !== -1 && end !== -1 && end > start) clean = clean.slice(start, end + 1);
+  try { return JSON.parse(clean); }
+  catch (e) { throw new Error('JSON 파싱 실패: ' + e.message + ' / 원문: ' + clean.slice(0, 100)); }
 }
 
-// ── /api/parse : 루브릭 추출 (Pro 모델, Flash 폴백) ──
+// ── /api/parse : 루브릭 추출 (Pro, Flash 폴백) ──
 app.post('/api/parse', async function(req, res) {
   try {
     var pdfBase64 = req.body.pdfBase64;
@@ -85,9 +71,8 @@ app.post('/api/parse', async function(req, res) {
     ];
 
     var result;
-    try {
-      result = await callGemini(URL_PRO, parts, true);
-    } catch (proErr) {
+    try { result = await callGemini(URL_PRO, parts, true); }
+    catch (proErr) {
       console.log('Pro 모델 실패, Flash로 폴백:', proErr.message);
       result = await callGemini(URL_FLASH, parts, true);
     }
@@ -97,30 +82,21 @@ app.post('/api/parse', async function(req, res) {
   }
 });
 
-// ── /api/grade : 채점 + 세특 (SSE — 단계별 실시간 진행 상태 전송) ──
+// ── /api/grade : 채점 + 세특 (일반 JSON 응답) ──
 app.post('/api/grade', async function(req, res) {
-  var pdfBase64       = req.body.pdfBase64;
-  var answerPdfBase64 = req.body.answerPdfBase64;
-  var question        = req.body.question;
-  var modelAnswer     = req.body.modelAnswer;
-  var studentName     = req.body.studentName;
-  var rubrics         = req.body.rubrics;
-
-  if (!pdfBase64 || !rubrics || !rubrics.length)
-    return res.status(400).json({ error: '필수 항목 누락 (루브릭 PDF, 루브릭 항목)' });
-  if (!answerPdfBase64)
-    return res.status(400).json({ error: '답안 PDF 필요' });
-
-  // SSE 헤더 설정
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-
-  function send(type, data) {
-    res.write('data: ' + JSON.stringify({ type: type, payload: data }) + '\n\n');
-  }
-
   try {
+    var pdfBase64       = req.body.pdfBase64;
+    var answerPdfBase64 = req.body.answerPdfBase64;
+    var question        = req.body.question;
+    var modelAnswer     = req.body.modelAnswer;
+    var studentName     = req.body.studentName;
+    var rubrics         = req.body.rubrics;
+
+    if (!pdfBase64 || !rubrics || !rubrics.length)
+      return res.status(400).json({ error: '필수 항목 누락' });
+    if (!answerPdfBase64)
+      return res.status(400).json({ error: '답안 PDF 필요' });
+
     var totalMax = rubrics.reduce(function(s, r) { return s + r.max; }, 0);
 
     var gradeGuide =
@@ -195,13 +171,11 @@ app.post('/api/grade', async function(req, res) {
       { text: setechPrompt }
     ];
 
-    // 1단계: 채점
-    send('progress', { step: 'grading', message: '① 답안 채점 중...' });
+    // 채점
     var gradeResult = await callGemini(URL_FLASH, gradeParts, true);
     gradeResult.setech = '';
 
-    // 2단계: 세특
-    send('progress', { step: 'setech', message: '② 세특 작성 중...' });
+    // 세특
     try {
       var setechText = await callGemini(URL_FLASH, setechParts, false);
       gradeResult.setech = typeof setechText === 'string' ? setechText : '';
@@ -210,13 +184,10 @@ app.post('/api/grade', async function(req, res) {
       gradeResult.setech = '';
     }
 
-    // 완료
-    send('done', gradeResult);
-    res.end();
+    res.json(gradeResult);
 
   } catch (e) {
-    send('error', e.message);
-    res.end();
+    res.status(500).json({ error: e.message });
   }
 });
 
@@ -224,5 +195,5 @@ var PORT = process.env.PORT || 3000;
 app.listen(PORT, function() {
   console.log('서버 실행중: http://localhost:' + PORT);
   console.log('API 키: ' + (KEY ? '로드됨' : '없음'));
-  console.log('모델: 루브릭 추출 → Pro(Flash 폴백) / 채점+세특 → Flash(SSE)');
+  console.log('모델: 루브릭 추출 → Pro(Flash 폴백) / 채점+세특 → Flash');
 });
