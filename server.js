@@ -364,7 +364,7 @@ app.post('/api/regrade', async function(req, res) {
   }
 });
 
-
+var PORT = process.env.PORT || 3000;
 app.listen(PORT, function() {
   console.log('서버 실행중: http://localhost:' + PORT);
   console.log('무료 키: ' + (KEY_FREE ? '로드됨' : '없음'));
