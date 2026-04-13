@@ -6,16 +6,21 @@ const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-const KEY = process.env.GEMINI_API_KEY;
+const KEY_FREE = process.env.GEMINI_API_KEY_FREE;
+const KEY_PAID = process.env.GEMINI_API_KEY_PAID;
 const BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
-const URL_PRO   = BASE + 'gemini-2.5-pro:generateContent?key=' + KEY;
-const URL_FLASH = BASE + 'gemini-2.5-flash:generateContent?key=' + KEY;
 
-async function callGemini(url, parts, jsonMode) {
+// 키별 URL 생성
+function makeUrl(model, key) {
+  return BASE + model + ':generateContent?key=' + key;
+}
+
+// 단일 키로 API 호출
+async function callGeminiWithKey(key, model, parts, jsonMode) {
   var config = jsonMode
     ? { temperature: 0.1, responseMimeType: 'application/json' }
     : { temperature: 0.1 };
-  var res = await fetch(url, {
+  var res = await fetch(makeUrl(model, key), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ contents: [{ parts: parts }], generationConfig: config })
@@ -30,6 +35,31 @@ async function callGemini(url, parts, jsonMode) {
   if (start !== -1 && end !== -1 && end > start) clean = clean.slice(start, end + 1);
   try { return JSON.parse(clean); }
   catch (e) { throw new Error('JSON 파싱 실패: ' + e.message + ' / 원문: ' + clean.slice(0, 100)); }
+}
+
+// 무료 키 시도 → 실패 시 유료 키 자동 전환
+async function callGemini(model, parts, jsonMode) {
+  // 무료 키로 먼저 시도
+  if (KEY_FREE) {
+    try {
+      return await callGeminiWithKey(KEY_FREE, model, parts, jsonMode);
+    } catch (e) {
+      var msg = e.message || '';
+      var isQuotaError = msg.includes('429') || msg.includes('quota') ||
+                         msg.includes('RESOURCE_EXHAUSTED') || msg.includes('leaked') ||
+                         msg.includes('rate limit') || msg.includes('Too Many Requests');
+      if (isQuotaError && KEY_PAID) {
+        console.log('무료 키 한도 초과 → 유료 키로 전환:', msg.slice(0, 80));
+        return await callGeminiWithKey(KEY_PAID, model, parts, jsonMode);
+      }
+      throw e;
+    }
+  }
+  // 무료 키 없으면 유료 키로 바로 호출
+  if (KEY_PAID) {
+    return await callGeminiWithKey(KEY_PAID, model, parts, jsonMode);
+  }
+  throw new Error('API 키가 설정되지 않았습니다. GEMINI_API_KEY_FREE 또는 GEMINI_API_KEY_PAID를 설정하세요.');
 }
 
 // ── /api/parse : 루브릭 추출 (Pro, Flash 폴백) ──
@@ -71,10 +101,10 @@ app.post('/api/parse', async function(req, res) {
     ];
 
     var result;
-    try { result = await callGemini(URL_PRO, parts, true); }
+    try { result = await callGemini('gemini-2.5-pro', parts, true); }
     catch (proErr) {
       console.log('Pro 모델 실패, Flash로 폴백:', proErr.message);
-      result = await callGemini(URL_FLASH, parts, true);
+      result = await callGemini('gemini-2.5-flash', parts, true);
     }
     res.json(result);
   } catch (e) {
@@ -175,7 +205,7 @@ app.post('/api/grade', async function(req, res) {
     var gradeResults = [];
     for (var attempt = 0; attempt < 3; attempt++) {
       try {
-        var r = await callGemini(URL_FLASH, gradeParts, true);
+        var r = await callGemini('gemini-2.5-flash', gradeParts, true);
         gradeResults.push(r);
       } catch (e) {
         console.log('채점 시도 ' + (attempt + 1) + ' 실패:', e.message);
@@ -206,7 +236,7 @@ app.post('/api/grade', async function(req, res) {
 
     // 세특
     try {
-      var setechText = await callGemini(URL_FLASH, setechParts, false);
+      var setechText = await callGemini('gemini-2.5-flash', setechParts, false);
       gradeResult.setech = typeof setechText === 'string' ? setechText : '';
     } catch (e) {
       console.log('세특 작성 실패:', e.message);
@@ -223,6 +253,7 @@ app.post('/api/grade', async function(req, res) {
 var PORT = process.env.PORT || 3000;
 app.listen(PORT, function() {
   console.log('서버 실행중: http://localhost:' + PORT);
-  console.log('API 키: ' + (KEY ? '로드됨' : '없음'));
-  console.log('모델: 루브릭 추출 → Pro(Flash 폴백) / 채점+세특 → Flash');
+  console.log('무료 키: ' + (KEY_FREE ? '로드됨' : '없음'));
+  console.log('유료 키: ' + (KEY_PAID ? '로드됨' : '없음'));
+  console.log('모델: 루브릭 추출 → Pro(Flash 폴백) / 채점+세특 → Flash(무료→유료 자동전환)');
 });
