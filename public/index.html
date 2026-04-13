@@ -234,6 +234,8 @@
         <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
           <button class="btn btn-success" onclick="exportExcel()">📥 엑셀 다운로드</button>
           <button class="btn" onclick="goTab(2)">← 다시 채점</button>
+          <button class="btn" id="regradeBtn" onclick="startRegrade()" style="background:var(--accent-light);color:var(--accent);border-color:var(--accent)">🔄 추가 채점 (누적)</button>
+          <span id="regradeCount" style="font-size:11px;color:var(--text3)"></span>
           <span style="font-size:12px;color:var(--text3);margin-left:4px">
             기본점수: <strong id="showBaseScore">—</strong>점 · 만점: <strong id="showTotalMax">—</strong>점 · 미응시: <strong id="showAbsentScore">—</strong>점
           </span>
@@ -243,7 +245,6 @@
         <div class="result-tabs">
           <button class="result-tab active" onclick="switchResultTab(0)">점수표</button>
           <button class="result-tab" onclick="switchResultTab(1)">세특 문구</button>
-          <button class="result-tab" onclick="switchResultTab(2)">항목별 피드백</button>
         </div>
 
         <!-- 점수표 -->
@@ -258,11 +259,6 @@
         <div class="result-pane" id="rpane1">
           <div id="setechList"></div>
         </div>
-
-        <!-- 항목별 피드백 -->
-        <div class="result-pane" id="rpane2">
-          <div id="feedbackList"></div>
-        </div>
       </div>
     </div>
 
@@ -271,6 +267,7 @@
 
 <script>
 var rubricBase64=null, parsedRubrics=[], totalMin=0, totalMax=0, answerFiles=[], gradingResults=[];
+var regradeCount=0; // 추가 채점 누적 횟수
 
 function goTab(i){
   document.querySelectorAll('.page').forEach(function(p,j){p.classList.toggle('active',i===j)});
@@ -361,6 +358,8 @@ function removeAnswer(i){answerFiles.splice(i,1);renderAnswerList()}
 async function startGrading(){
   if(!rubricBase64||!parsedRubrics.length){alert('루브릭 PDF를 먼저 추출해주세요.');return}
   gradingResults=[];
+  regradeCount=0;
+  document.getElementById('regradeCount').textContent='';
   goTab(3);
   var total=answerFiles.length;
   var question=document.getElementById('question').value.trim();
@@ -386,8 +385,9 @@ async function startGrading(){
 
     await new Promise(function(resolve) {
       var idx = i;
-      gs.textContent='채점 중...'; gs.className='file-item-status s-run';
+      gs.textContent='채점 중...';gs.className='file-item-status s-run';
 
+      // 타이머로 세특 작성 중 표시 (약 15초 후)
       var setechTimer = setTimeout(function(){
         if(gs.className.indexOf('s-run') >= 0){
           gs.textContent='세특 작성 중...';
@@ -415,7 +415,7 @@ async function startGrading(){
         .catch(function(e){
           clearTimeout(setechTimer);
           gradingResults.push({ok:false,name:answerFiles[idx].name,error:e.message});
-          gs.textContent='오류: '+e.message.slice(0,30);
+          gs.textContent='오류: '+e.message.slice(0,20);
           gs.className='file-item-status s-err';
           resolve();
         });
@@ -427,7 +427,6 @@ async function startGrading(){
   document.getElementById('nav3').classList.add('done');
   renderResultTable();
   renderSetechList();
-  renderFeedbackList();
 }
 
 function updateProgress(done,total){
@@ -435,6 +434,75 @@ function updateProgress(done,total){
   document.getElementById('progressLabel').textContent=done+' / '+total;
   document.getElementById('progressPct').textContent=pct+'%';
   document.getElementById('progressFill').style.width=pct+'%';
+}
+
+async function startRegrade(){
+  var ok=gradingResults.filter(function(r){return r.ok});
+  if(!ok.length){alert('채점 결과가 없습니다.');return;}
+  var btn=document.getElementById('regradeBtn');
+  btn.disabled=true;
+  btn.textContent='🔄 추가 채점 중...';
+
+  var question=document.getElementById('question').value.trim();
+  var modelAnswer=document.getElementById('modelAnswer').value.trim();
+  var newResults=[];
+
+  for(var i=0;i<ok.length;i++){
+    var r=ok[i];
+    var file=answerFiles.find(function(f){return f.name===r.data.studentName;});
+    if(!file) continue;
+
+    try{
+      var body=JSON.stringify({
+        pdfBase64:rubricBase64, answerPdfBase64:file.base64,
+        question:question, modelAnswer:modelAnswer,
+        studentName:r.data.studentName, rubrics:parsedRubrics
+      });
+      var res=await fetch('/api/regrade',{method:'POST',headers:{'Content-Type':'application/json'},body:body});
+      var data=await res.json();
+      if(data.error) throw new Error(data.error);
+      newResults.push({name:r.data.studentName, rubrics:data.rubrics, total:data.total});
+    }catch(e){
+      console.log('추가 채점 실패 ('+r.data.studentName+'):', e.message);
+    }
+  }
+
+  if(!newResults.length){
+    alert('추가 채점 실패');
+    btn.disabled=false;
+    btn.textContent='🔄 추가 채점 (누적)';
+    return;
+  }
+
+  // 기존 결과와 새 결과 점수 평균 누적
+  regradeCount++;
+  gradingResults=gradingResults.map(function(r){
+    if(!r.ok) return r;
+    var newR=newResults.find(function(n){return n.name===r.data.studentName;});
+    if(!newR) return r;
+
+    // 항목별 점수 누적 평균
+    var merged=JSON.parse(JSON.stringify(r.data));
+    merged.rubrics=merged.rubrics.map(function(rub, ri){
+      var newScore=(newR.rubrics&&newR.rubrics[ri])?newR.rubrics[ri].score:rub.score;
+      // 기존 점수(regradeCount번 평균)와 새 점수 평균
+      var avgScore=Math.round((rub.score*regradeCount + newScore)/(regradeCount+1));
+      rub.score=Math.min(rub.max, Math.max(rub.min, avgScore));
+      return rub;
+    });
+    merged.total=merged.rubrics.reduce(function(s,rub){return s+rub.score;},0);
+    var pct=merged.total/totalMax;
+    merged.grade=pct>=0.95?'A+':pct>=0.90?'A':pct>=0.85?'B+':
+                 pct>=0.80?'B':pct>=0.70?'C+':pct>=0.60?'C':
+                 pct>=0.50?'D':'F';
+    return {ok:true, data:merged};
+  });
+
+  regradeCount++;
+  renderResultTable();
+  document.getElementById('regradeCount').textContent='누적 채점 '+regradeCount+'회';
+  btn.disabled=false;
+  btn.textContent='🔄 추가 채점 (누적)';
 }
 
 function renderResultTable(){
@@ -487,38 +555,6 @@ function renderSetechList(){
       +'</div></div>'
       +'<div class="setech-text" id="setech_'+i+'">'+setech+'</div>'
       +'<div class="setech-byte">'+bytes+' byte / 500 byte'+(bytes>500?' ⚠ 초과':'')+'</div>'
-      +'</div>';
-  }).join('');
-}
-
-function renderFeedbackList(){
-  var ok=gradingResults.filter(function(r){return r.ok});
-  document.getElementById('feedbackList').innerHTML=ok.map(function(r){
-    var d=r.data;
-    var pct=Math.round((d.total/totalMax)*100);
-    var gc=pct>=90?'ga':pct>=70?'gbb':pct>=50?'gc':'gd';
-    var rubrics=d.rubrics||[];
-    return '<div class="setech-card">'
-      +'<div class="setech-header">'
-      +'<span class="setech-name"><strong>'+d.studentName+'</strong></span>'
-      +'<div style="display:flex;align-items:center;gap:8px">'
-      +'<span class="setech-score">'+d.total+'/'+totalMax+'점</span>'
-      +'<span class="gb '+gc+'">'+d.grade+'</span>'
-      +'</div></div>'
-      +'<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px">'
-      +'<thead><tr style="background:var(--surface2)">'
-      +'<th style="padding:6px 8px;text-align:left;border:1px solid var(--border);width:30%">항목</th>'
-      +'<th style="padding:6px 8px;text-align:center;border:1px solid var(--border);width:10%">점수</th>'
-      +'<th style="padding:6px 8px;text-align:left;border:1px solid var(--border)">피드백</th>'
-      +'</tr></thead><tbody>'
-      +rubrics.map(function(rub){
-        return '<tr>'
-          +'<td style="padding:6px 8px;border:1px solid var(--border);font-weight:500;color:var(--text)">'+rub.name+'</td>'
-          +'<td style="padding:6px 8px;border:1px solid var(--border);text-align:center;font-family:\'DM Mono\',monospace;color:var(--accent)">'+rub.score+'/'+rub.max+'</td>'
-          +'<td style="padding:6px 8px;border:1px solid var(--border);color:var(--text2);line-height:1.6">'+(rub.feedback||'—')+'</td>'
-          +'</tr>';
-      }).join('')
-      +'</tbody></table>'
       +'</div>';
   }).join('');
 }

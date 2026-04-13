@@ -38,28 +38,86 @@ async function callGeminiWithKey(key, model, parts, jsonMode) {
 }
 
 // 무료 키 시도 → 실패 시 유료 키 자동 전환
+// 수요 폭주 시 Flash → Pro 폴백
 async function callGemini(model, parts, jsonMode) {
-  // 무료 키로 먼저 시도
+  var isQuotaError = function(msg) {
+    return msg.includes('429') || msg.includes('quota') ||
+           msg.includes('RESOURCE_EXHAUSTED') || msg.includes('leaked') ||
+           msg.includes('rate limit') || msg.includes('Too Many Requests') ||
+           msg.includes('exceeded');
+  };
+  var isDemandError = function(msg) {
+    return msg.includes('high demand') || msg.includes('temporarily') ||
+           msg.includes('try again') || msg.includes('overloaded') ||
+           msg.includes('503') || msg.includes('502');
+  };
+
+  // 1. 무료 키로 시도
   if (KEY_FREE) {
     try {
       return await callGeminiWithKey(KEY_FREE, model, parts, jsonMode);
     } catch (e) {
       var msg = e.message || '';
-      var isQuotaError = msg.includes('429') || msg.includes('quota') ||
-                         msg.includes('RESOURCE_EXHAUSTED') || msg.includes('leaked') ||
-                         msg.includes('rate limit') || msg.includes('Too Many Requests');
-      if (isQuotaError && KEY_PAID) {
+
+      // 한도 초과 → 유료 키로 전환
+      if (isQuotaError(msg) && KEY_PAID) {
         console.log('무료 키 한도 초과 → 유료 키로 전환:', msg.slice(0, 80));
-        return await callGeminiWithKey(KEY_PAID, model, parts, jsonMode);
+        try {
+          return await callGeminiWithKey(KEY_PAID, model, parts, jsonMode);
+        } catch (e2) {
+          var msg2 = e2.message || '';
+          // 유료 키도 수요 폭주 시 Pro 폴백
+          if (isDemandError(msg2) && model === 'gemini-2.5-flash') {
+            console.log('유료 Flash 수요 폭주 → Pro로 폴백:', msg2.slice(0, 80));
+            return await callGeminiWithKey(KEY_PAID, 'gemini-2.5-pro', parts, jsonMode);
+          }
+          throw e2;
+        }
+      }
+
+      // 수요 폭주 → 유료 키로 전환 후 Pro 폴백
+      if (isDemandError(msg)) {
+        console.log('Flash 수요 폭주 감지:', msg.slice(0, 80));
+        var fallbackKey = KEY_PAID || KEY_FREE;
+        // 같은 모델로 유료 키 시도
+        if (KEY_PAID) {
+          try {
+            return await callGeminiWithKey(KEY_PAID, model, parts, jsonMode);
+          } catch (e2) {
+            var msg2 = e2.message || '';
+            if ((isDemandError(msg2) || isQuotaError(msg2)) && model === 'gemini-2.5-flash') {
+              console.log('유료 Flash도 실패 → Pro로 폴백');
+              return await callGeminiWithKey(KEY_PAID, 'gemini-2.5-pro', parts, jsonMode);
+            }
+            throw e2;
+          }
+        }
+        // 유료 키 없으면 Pro로 폴백
+        if (model === 'gemini-2.5-flash') {
+          console.log('Flash 수요 폭주 → Pro 폴백 (무료 키)');
+          return await callGeminiWithKey(KEY_FREE, 'gemini-2.5-pro', parts, jsonMode);
+        }
+      }
+
+      throw e;
+    }
+  }
+
+  // 2. 무료 키 없으면 유료 키로 바로 호출
+  if (KEY_PAID) {
+    try {
+      return await callGeminiWithKey(KEY_PAID, model, parts, jsonMode);
+    } catch (e) {
+      var msg = e.message || '';
+      if (isDemandError(msg) && model === 'gemini-2.5-flash') {
+        console.log('Flash 수요 폭주 → Pro 폴백 (유료 키)');
+        return await callGeminiWithKey(KEY_PAID, 'gemini-2.5-pro', parts, jsonMode);
       }
       throw e;
     }
   }
-  // 무료 키 없으면 유료 키로 바로 호출
-  if (KEY_PAID) {
-    return await callGeminiWithKey(KEY_PAID, model, parts, jsonMode);
-  }
-  throw new Error('API 키가 설정되지 않았습니다. GEMINI_API_KEY_FREE 또는 GEMINI_API_KEY_PAID를 설정하세요.');
+
+  throw new Error('API 키가 설정되지 않았습니다.');
 }
 
 // ── /api/parse : 루브릭 추출 (Pro, Flash 폴백) ──
@@ -201,37 +259,17 @@ app.post('/api/grade', async function(req, res) {
       { text: setechPrompt }
     ];
 
-    // 채점 3회 반복 후 평균
+    // 채점 (1회 — Render 타임아웃 방지)
     var gradeResults = [];
-    for (var attempt = 0; attempt < 3; attempt++) {
-      try {
-        var r = await callGemini('gemini-2.5-flash', gradeParts, true);
-        gradeResults.push(r);
-      } catch (e) {
-        console.log('채점 시도 ' + (attempt + 1) + ' 실패:', e.message);
-      }
+    try {
+      var r = await callGemini('gemini-2.5-flash', gradeParts, true);
+      gradeResults.push(r);
+    } catch (e) {
+      console.log('채점 실패:', e.message);
     }
-    if (!gradeResults.length) throw new Error('채점 3회 모두 실패');
+    if (!gradeResults.length) throw new Error('채점 실패');
 
-    // 항목별 점수 평균 계산
-    var gradeResult = JSON.parse(JSON.stringify(gradeResults[0]));
-    if (gradeResults.length > 1) {
-      gradeResult.rubrics = gradeResult.rubrics.map(function(rub, ri) {
-        var scores = gradeResults.map(function(r) {
-          return (r.rubrics && r.rubrics[ri]) ? (r.rubrics[ri].score || 0) : 0;
-        });
-        var avg = scores.reduce(function(s, v) { return s + v; }, 0) / scores.length;
-        // 반올림 후 min~max 범위 보정
-        rub.score = Math.min(rub.max, Math.max(rub.min, Math.round(avg)));
-        return rub;
-      });
-      gradeResult.total = gradeResult.rubrics.reduce(function(s, r) { return s + r.score; }, 0);
-      // 평균 총점 기준 등급 재계산
-      var pct = gradeResult.total / totalMax;
-      gradeResult.grade = pct >= 0.95 ? 'A+' : pct >= 0.90 ? 'A' : pct >= 0.85 ? 'B+' :
-                          pct >= 0.80 ? 'B'  : pct >= 0.70 ? 'C+': pct >= 0.60 ? 'C'  :
-                          pct >= 0.50 ? 'D'  : 'F';
-    }
+    var gradeResult = gradeResults[0];
     gradeResult.setech = '';
 
     // 세특
@@ -250,7 +288,83 @@ app.post('/api/grade', async function(req, res) {
   }
 });
 
-var PORT = process.env.PORT || 3000;
+// ── /api/regrade : 추가 채점 (세특 없이 채점만) ──
+app.post('/api/regrade', async function(req, res) {
+  try {
+    var pdfBase64       = req.body.pdfBase64;
+    var answerPdfBase64 = req.body.answerPdfBase64;
+    var question        = req.body.question;
+    var modelAnswer     = req.body.modelAnswer;
+    var studentName     = req.body.studentName;
+    var rubrics         = req.body.rubrics;
+
+    if (!pdfBase64 || !rubrics || !rubrics.length)
+      return res.status(400).json({ error: '필수 항목 누락' });
+    if (!answerPdfBase64)
+      return res.status(400).json({ error: '답안 PDF 필요' });
+
+    var totalMax = rubrics.reduce(function(s, r) { return s + r.max; }, 0);
+
+    var gradeGuide =
+      '등급 기준 (총점 ' + totalMax + '점 기준):\n' +
+      '  A+: ' + Math.round(totalMax * 0.95) + '점 이상\n' +
+      '  A:  ' + Math.round(totalMax * 0.90) + '점 이상\n' +
+      '  B+: ' + Math.round(totalMax * 0.85) + '점 이상\n' +
+      '  B:  ' + Math.round(totalMax * 0.80) + '점 이상\n' +
+      '  C+: ' + Math.round(totalMax * 0.70) + '점 이상\n' +
+      '  C:  ' + Math.round(totalMax * 0.60) + '점 이상\n' +
+      '  D:  ' + Math.round(totalMax * 0.50) + '점 이상\n' +
+      '  F:  ' + Math.round(totalMax * 0.50) + '점 미만';
+
+    var rubricDetail = rubrics.map(function(r, i) {
+      var criteriaStr = '';
+      if (r.criteria && r.criteria.length) {
+        criteriaStr = '\n   수준별 기준:\n' + r.criteria.map(function(c) {
+          return '   - ' + c.level + '(' + c.score + '점): ' + c.desc;
+        }).join('\n');
+      } else {
+        criteriaStr = '\n   (수준별 기준 없음 — ' + r.min + '~' + r.max + '점 범위 내 답안 수준에 따라 부여)';
+      }
+      return (i + 1) + '. [' + r.name + '] ' + r.min + '~' + r.max + '점\n' +
+             '   평가 기준: ' + (r.description || '') + criteriaStr;
+    }).join('\n\n');
+
+    var gradingPrompt =
+      '당신은 교육 평가 전문가입니다. 첨부된 두 PDF(①채점 기준, ②학생 답안)를 분석하여 채점하세요.\n\n' +
+      '[평가 대상]\n' +
+      (studentName ? '학생: ' + studentName + '\n' : '') +
+      (question ? '문제: ' + question + '\n\n' : '문제: ①번 PDF(채점 기준)에 포함된 문제를 참고하세요.\n\n') +
+      (modelAnswer ? '[모범 답안]\n' + modelAnswer + '\n\n' : '') +
+      '[채점 루브릭 — 총 ' + totalMax + '점]\n' +
+      rubricDetail + '\n\n' +
+      '[채점 지침]\n' +
+      '1. ②번 PDF의 학생 답안 전체를 꼼꼼히 읽으세요.\n' +
+      '2. 각 루브릭 항목별로 답안의 관련 내용을 찾아 대조하세요.\n' +
+      '3. 수준별 기준이 있으면 해당 수준의 점수를 부여하세요.\n' +
+      '   수준별 기준이 없으면 답안 완성도에 따라 min~max 범위 내에서 부여하세요.\n' +
+      '4. 루브릭 기준에 엄격하게 근거하여 채점하세요. 점수를 관대하게 주지 마세요.\n' +
+      '5. 점수는 반드시 각 항목의 min 이상 max 이하여야 합니다.\n' +
+      '6. 피드백은 답안의 구체적 내용을 언급하며 잘한 점과 개선점을  2~3문장으로 서술하세요.\n\n' +
+      gradeGuide + '\n\n' +
+      '반드시 아래 JSON만 출력하세요:\n' +
+      '{"rubrics":[{"name":"항목명","min":최저점,"max":최고점,"score":부여점수,"feedback":"피드백 2~3문장"}],' +
+      '"total":합계점수,"totalMax":' + totalMax + ',"grade":"등급"}';
+
+    var gradeParts = [
+      { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } },
+      { inline_data: { mime_type: 'application/pdf', data: answerPdfBase64 } },
+      { text: gradingPrompt }
+    ];
+
+    var gradeResult = await callGemini('gemini-2.5-flash', gradeParts, true);
+    res.json(gradeResult);
+
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+
 app.listen(PORT, function() {
   console.log('서버 실행중: http://localhost:' + PORT);
   console.log('무료 키: ' + (KEY_FREE ? '로드됨' : '없음'));
