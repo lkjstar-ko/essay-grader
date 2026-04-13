@@ -308,6 +308,6 @@ app.post('/api/regrade', async function(req, res) {
 var PORT = process.env.PORT || 3000;
 app.listen(PORT, function() {
   console.log('서버 실행중: http://localhost:' + PORT);
-  console.log('유료 키: ' + (KEY_PAID ? '로드됨' : '없음 (FREE 키로 대체)'));
+  console.log('유료 키: ' + (KEY_PAID ? '로드됨' : '없음 (FREE 키로 대체)'));  
   console.log('모델: 루브릭 추출 → Pro(Flash 폴백) / 채점+세특 → Flash(Pro 폴백)');
 });
