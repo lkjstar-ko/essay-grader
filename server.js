@@ -37,87 +37,28 @@ async function callGeminiWithKey(key, model, parts, jsonMode) {
   catch (e) { throw new Error('JSON 파싱 실패: ' + e.message + ' / 원문: ' + clean.slice(0, 100)); }
 }
 
-// 무료 키 시도 → 실패 시 유료 키 자동 전환
-// 수요 폭주 시 Flash → Pro 폴백
+// 유료 키로만 호출 (무료 키 폴백 제거)
 async function callGemini(model, parts, jsonMode) {
-  var isQuotaError = function(msg) {
-    return msg.includes('429') || msg.includes('quota') ||
-           msg.includes('RESOURCE_EXHAUSTED') || msg.includes('leaked') ||
-           msg.includes('rate limit') || msg.includes('Too Many Requests') ||
-           msg.includes('exceeded');
-  };
+  var key = KEY_PAID || KEY_FREE;
+  if (!key) throw new Error('API 키가 설정되지 않았습니다.');
+
   var isDemandError = function(msg) {
     return msg.includes('high demand') || msg.includes('temporarily') ||
            msg.includes('try again') || msg.includes('overloaded') ||
            msg.includes('503') || msg.includes('502');
   };
 
-  // 1. 무료 키로 시도
-  if (KEY_FREE) {
-    try {
-      return await callGeminiWithKey(KEY_FREE, model, parts, jsonMode);
-    } catch (e) {
-      var msg = e.message || '';
-
-      // 한도 초과 → 유료 키로 전환
-      if (isQuotaError(msg) && KEY_PAID) {
-        console.log('무료 키 한도 초과 → 유료 키로 전환:', msg.slice(0, 80));
-        try {
-          return await callGeminiWithKey(KEY_PAID, model, parts, jsonMode);
-        } catch (e2) {
-          var msg2 = e2.message || '';
-          // 유료 키도 수요 폭주 시 Pro 폴백
-          if (isDemandError(msg2) && model === 'gemini-2.5-flash') {
-            console.log('유료 Flash 수요 폭주 → Pro로 폴백:', msg2.slice(0, 80));
-            return await callGeminiWithKey(KEY_PAID, 'gemini-2.5-pro', parts, jsonMode);
-          }
-          throw e2;
-        }
-      }
-
-      // 수요 폭주 → 유료 키로 전환 후 Pro 폴백
-      if (isDemandError(msg)) {
-        console.log('Flash 수요 폭주 감지:', msg.slice(0, 80));
-        var fallbackKey = KEY_PAID || KEY_FREE;
-        // 같은 모델로 유료 키 시도
-        if (KEY_PAID) {
-          try {
-            return await callGeminiWithKey(KEY_PAID, model, parts, jsonMode);
-          } catch (e2) {
-            var msg2 = e2.message || '';
-            if ((isDemandError(msg2) || isQuotaError(msg2)) && model === 'gemini-2.5-flash') {
-              console.log('유료 Flash도 실패 → Pro로 폴백');
-              return await callGeminiWithKey(KEY_PAID, 'gemini-2.5-pro', parts, jsonMode);
-            }
-            throw e2;
-          }
-        }
-        // 유료 키 없으면 Pro로 폴백
-        if (model === 'gemini-2.5-flash') {
-          console.log('Flash 수요 폭주 → Pro 폴백 (무료 키)');
-          return await callGeminiWithKey(KEY_FREE, 'gemini-2.5-pro', parts, jsonMode);
-        }
-      }
-
-      throw e;
+  try {
+    return await callGeminiWithKey(key, model, parts, jsonMode);
+  } catch (e) {
+    var msg = e.message || '';
+    // Flash 수요 폭주 시 Pro 폴백
+    if (isDemandError(msg) && model === 'gemini-2.5-flash') {
+      console.log('Flash 수요 폭주 → Pro 폴백:', msg.slice(0, 80));
+      return await callGeminiWithKey(key, 'gemini-2.5-pro', parts, jsonMode);
     }
+    throw e;
   }
-
-  // 2. 무료 키 없으면 유료 키로 바로 호출
-  if (KEY_PAID) {
-    try {
-      return await callGeminiWithKey(KEY_PAID, model, parts, jsonMode);
-    } catch (e) {
-      var msg = e.message || '';
-      if (isDemandError(msg) && model === 'gemini-2.5-flash') {
-        console.log('Flash 수요 폭주 → Pro 폴백 (유료 키)');
-        return await callGeminiWithKey(KEY_PAID, 'gemini-2.5-pro', parts, jsonMode);
-      }
-      throw e;
-    }
-  }
-
-  throw new Error('API 키가 설정되지 않았습니다.');
 }
 
 // ── /api/parse : 루브릭 추출 (Pro, Flash 폴백) ──
@@ -344,7 +285,7 @@ app.post('/api/regrade', async function(req, res) {
       '   수준별 기준이 없으면 답안 완성도에 따라 min~max 범위 내에서 부여하세요.\n' +
       '4. 루브릭 기준에 엄격하게 근거하여 채점하세요. 점수를 관대하게 주지 마세요.\n' +
       '5. 점수는 반드시 각 항목의 min 이상 max 이하여야 합니다.\n' +
-      '6. 피드백은 답안의 구체적 내용을 언급하며 잘한 점과 개선점을 2~3문장으로 서술하세요.\n\n' +
+      '6. 피드백은 답안의 구체적 내용을 언급하며 잘한 점과 개선점을  2~3문장으로 서술하세요.\n\n' +
       gradeGuide + '\n\n' +
       '반드시 아래 JSON만 출력하세요:\n' +
       '{"rubrics":[{"name":"항목명","min":최저점,"max":최고점,"score":부여점수,"feedback":"피드백 2~3문장"}],' +
@@ -367,7 +308,6 @@ app.post('/api/regrade', async function(req, res) {
 var PORT = process.env.PORT || 3000;
 app.listen(PORT, function() {
   console.log('서버 실행중: http://localhost:' + PORT);
-  console.log('무료 키: ' + (KEY_FREE ? '로드됨' : '없음'));
-  console.log('유료 키: ' + (KEY_PAID ? '로드됨' : '없음'));
-  console.log('모델: 루브릭 추출 → Pro(Flash 폴백) / 채점+세특 → Flash(무료→유료 자동전환)');
+  console.log('유료 키: ' + (KEY_PAID ? '로드됨' : '없음 (FREE 키로 대체)'));
+  console.log('모델: 루브릭 추출 → Pro(Flash 폴백) / 채점+세특 → Flash(Pro 폴백)');
 });
