@@ -82,6 +82,31 @@ app.post('/api/parse', async function(req, res) {
   }
 });
 
+// ── /api/parse-achievement : 성취기준 추출 (Flash) ──
+app.post('/api/parse-achievement', async function(req, res) {
+  try {
+    var fileBase64 = req.body.fileBase64;
+    var mimeType   = req.body.mimeType || 'application/pdf';
+    if (!fileBase64) return res.status(400).json({ error: 'fileBase64 필요' });
+
+    var prompt =
+      '첨부된 파일에서 교육과정 성취기준을 모두 추출하세요.\n' +
+      '성취기준 코드(예: [9사01-01])와 내용을 원문 그대로 유지하되,\n' +
+      '불필요한 머리말·꼬리말·표 형식 기호는 제거하세요.\n' +
+      '추출된 성취기준 텍스트만 출력하세요. 다른 설명 없이.';
+
+    var parts = [
+      { inline_data: { mime_type: mimeType, data: fileBase64 } },
+      { text: prompt }
+    ];
+
+    var text = await callGemini(URL_FLASH, parts, false);
+    res.json({ text: text });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── 채점 프롬프트 공통 빌더 ──
 function buildGradePrompt(rubrics, question, modelAnswer, studentName) {
   var totalMax = rubrics.reduce(function(s, r) { return s + r.max; }, 0);
@@ -137,12 +162,13 @@ function buildGradePrompt(rubrics, question, modelAnswer, studentName) {
 // ── /api/grade : 채점 + 세특 ──
 app.post('/api/grade', async function(req, res) {
   try {
-    var pdfBase64       = req.body.pdfBase64;
-    var answerPdfBase64 = req.body.answerPdfBase64;
-    var question        = req.body.question;
-    var modelAnswer     = req.body.modelAnswer;
-    var studentName     = req.body.studentName;
-    var rubrics         = req.body.rubrics;
+    var pdfBase64           = req.body.pdfBase64;
+    var answerPdfBase64     = req.body.answerPdfBase64;
+    var question            = req.body.question;
+    var modelAnswer         = req.body.modelAnswer;
+    var studentName         = req.body.studentName;
+    var rubrics             = req.body.rubrics;
+    var achievementStandard = req.body.achievementStandard || '';
 
     if (!pdfBase64 || !rubrics || !rubrics.length)
       return res.status(400).json({ error: '필수 항목 누락' });
@@ -151,10 +177,15 @@ app.post('/api/grade', async function(req, res) {
 
     var built = buildGradePrompt(rubrics, question, modelAnswer, studentName);
 
+    var achievementSection = achievementStandard
+      ? '[성취기준]\n' + achievementStandard + '\n위 성취기준을 참고하여 학생이 어느 수준에 도달했는지 세특에 자연스럽게 반영하세요.\n\n'
+      : '';
+
     var setechPrompt =
       '당신은 교과 담당 교사입니다. 첨부된 학생의 수행평가 답안을 바탕으로 학교생활기록부 교과 세부능력 및 특기사항(세특)을 작성하세요.\n\n' +
       '[수행평가 문제]\n' + (question || '첨부된 답안 PDF의 문제 내용을 참고하세요.') + '\n\n' +
       '[학생 답안 — 첨부 PDF 참고]\n\n' +
+      achievementSection +
       '[세특 작성 원칙]\n' +
       '- 단순 활동 나열이 아닌, 답안에서 드러난 학생의 사고 과정과 역량을 교사가 포착하여 기술하세요.\n' +
       '- 성찰 역량화: 어려움은 끈기로, 흥미는 학습 호기심으로 변환하여 기술하세요.\n' +

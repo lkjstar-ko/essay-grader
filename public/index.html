@@ -171,6 +171,23 @@
           </div>
         </div>
       </div>
+      <!-- 성취기준 파일 업로드 -->
+      <div class="card" style="margin-top:14px">
+        <div class="card-title">성취기준 파일 <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:12px;color:var(--text3)">(선택사항)</span></div>
+        <div class="drop-zone" id="achievementDrop" ondragover="onDrag(event,'achievementDrop',true)" ondragleave="onDrag(event,'achievementDrop',false)" ondrop="onDropAchievement(event)">
+          <input type="file" accept=".pdf,.txt" id="achievementInput" onchange="onAchievementSelect(event)">
+          <div class="drop-icon">🎯</div>
+          <div class="drop-title">성취기준 파일을 끌어다 놓거나 클릭</div>
+          <div class="drop-sub">PDF 또는 텍스트 파일 · 업로드하지 않아도 채점 가능</div>
+        </div>
+        <div id="achievementFileInfo" style="display:none" class="file-loaded">
+          <span style="font-size:18px">🎯</span>
+          <span class="file-loaded-name" id="achievementFileName"></span>
+          <span class="file-loaded-size" id="achievementFileSize"></span>
+          <button class="file-remove" onclick="removeAchievement()">×</button>
+        </div>
+        <div id="achievementNotice" style="margin-top:8px"></div>
+      </div>
       <div class="btn-row" style="margin-top:14px"><button class="btn btn-primary" onclick="goTab(1)">과제 설정 →</button></div>
     </div>
 
@@ -277,6 +294,7 @@
 var rubricBase64=null, parsedRubrics=[], totalMin=0, totalMax=0, answerFiles=[], gradingResults=[];
 var regradeCount=0; // 추가 채점 누적 횟수
 var regradeHistory=[]; // 회차별 채점 이력 [{round:1, results:[...]}, ...]
+var achievementBase64=null, achievementMime='application/pdf', achievementStandard='';
 
 function goTab(i){
   document.querySelectorAll('.page').forEach(function(p,j){p.classList.toggle('active',i===j)});
@@ -333,6 +351,43 @@ async function parsePdf(){
     showNotice('parseNotice','ok','루브릭 '+parsedRubrics.length+'개 항목 추출 완료 · 기본점수: '+totalMin+'점 · 만점: '+totalMax+'점');
   }catch(e){showNotice('parseNotice','err','루브릭 추출 실패: '+e.message);}
   finally{btn.disabled=false;txt.textContent='다시 추출하기';}
+}
+
+// ── 성취기준 파일 ──
+function onDropAchievement(e){e.preventDefault();document.getElementById('achievementDrop').classList.remove('over');var f=e.dataTransfer.files[0];if(f)loadAchievementFile(f)}
+function onAchievementSelect(e){var f=e.target.files[0];if(f)loadAchievementFile(f)}
+function loadAchievementFile(f){
+  achievementMime=f.type||'application/pdf';
+  var r=new FileReader();
+  r.onload=function(ev){
+    achievementBase64=ev.target.result.split(',')[1];
+    document.getElementById('achievementFileName').textContent=f.name;
+    document.getElementById('achievementFileSize').textContent=fmtSize(f.size);
+    document.getElementById('achievementFileInfo').style.display='flex';
+    parseAchievement();
+  };
+  r.readAsDataURL(f);
+}
+function removeAchievement(){
+  achievementBase64=null;achievementStandard='';
+  document.getElementById('achievementFileInfo').style.display='none';
+  document.getElementById('achievementInput').value='';
+  document.getElementById('achievementNotice').innerHTML='';
+}
+async function parseAchievement(){
+  var notice=document.getElementById('achievementNotice');
+  notice.innerHTML='<div class="notice notice-info">성취기준 추출 중...</div>';
+  try{
+    var res=await fetch('/api/parse-achievement',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({fileBase64:achievementBase64,mimeType:achievementMime})});
+    var data=await res.json();
+    if(data.error)throw new Error(data.error);
+    achievementStandard=data.text||'';
+    notice.innerHTML='<div class="notice notice-ok">성취기준 추출 완료 ('+achievementStandard.length+'자)</div>';
+  }catch(e){
+    achievementStandard='';
+    notice.innerHTML='<div class="notice notice-err">성취기준 추출 실패: '+e.message+'</div>';
+  }
 }
 
 // ── 답안 PDF ──
@@ -407,7 +462,8 @@ async function startGrading(){
       var body=JSON.stringify({
         pdfBase64:rubricBase64,answerPdfBase64:answerFiles[idx].base64,
         question:question,modelAnswer:modelAnswer,
-        studentName:answerFiles[idx].name,rubrics:parsedRubrics
+        studentName:answerFiles[idx].name,rubrics:parsedRubrics,
+        achievementStandard:achievementStandard
       });
 
       fetch('/api/grade',{method:'POST',headers:{'Content-Type':'application/json'},body:body})
@@ -466,7 +522,8 @@ async function startRegrade(){
       var body=JSON.stringify({
         pdfBase64:rubricBase64, answerPdfBase64:file.base64,
         question:question, modelAnswer:modelAnswer,
-        studentName:r.data.studentName, rubrics:parsedRubrics
+        studentName:r.data.studentName, rubrics:parsedRubrics,
+        achievementStandard:achievementStandard
       });
       var res=await fetch('/api/regrade',{method:'POST',headers:{'Content-Type':'application/json'},body:body});
       var data=await res.json();
