@@ -216,9 +216,35 @@
           <label>문제 <span style="font-weight:400;color:var(--text3)">(선택 — AI 채점 정확도 향상에 활용됨)</span></label>
           <textarea id="question" rows="4" placeholder="학생이 답해야 할 문제를 입력하면 채점 정확도가 높아집니다.&#10;루브릭 PDF에 문제가 포함되어 있다면 비워두어도 됩니다."></textarea>
         </div>
-        <div class="form-row" style="margin-bottom:0">
+        <div class="form-row">
           <label>모범 답안 <span style="font-weight:400;color:var(--text3)">(선택 — 채점 시 비교 기준으로 활용됨)</span></label>
           <textarea id="modelAnswer" rows="3" placeholder="모범 답안을 입력하면 AI가 비교 기준으로 활용합니다.&#10;없으면 루브릭 PDF 기준으로만 채점합니다."></textarea>
+        </div>
+        <div class="form-row" style="margin-bottom:0">
+          <label>모범 답안 PDF <span style="font-weight:400;color:var(--text3)">(선택사항 — 텍스트 입력과 함께 사용 가능)</span></label>
+          <div class="drop-zone" id="modelAnswerDrop" ondragover="onDrag(event,'modelAnswerDrop',true)" ondragleave="onDrag(event,'modelAnswerDrop',false)" ondrop="onDropModelAnswerPdf(event)" style="padding:16px 24px">
+            <input type="file" accept=".pdf" id="modelAnswerPdfInput" onchange="onModelAnswerPdfSelect(event)">
+            <div class="drop-icon" style="font-size:22px;margin-bottom:4px">📄</div>
+            <div class="drop-title" style="font-size:13px">모범 답안 PDF를 끌어다 놓거나 클릭</div>
+            <div class="drop-sub">PDF 파일만 허용</div>
+          </div>
+          <div id="modelAnswerPdfInfo" style="display:none" class="file-loaded">
+            <span style="font-size:18px">📄</span>
+            <span class="file-loaded-name" id="modelAnswerPdfName"></span>
+            <span class="file-loaded-size" id="modelAnswerPdfSize"></span>
+            <button class="file-remove" onclick="removeModelAnswerPdf()">×</button>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:0">
+        <div class="card-title">세특 설정</div>
+        <div class="form-row" style="margin-bottom:0">
+          <label>세특 분량</label>
+          <select id="setechLength" style="padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;font-family:'Noto Sans KR',sans-serif;background:var(--surface);color:var(--text);width:100%;max-width:260px">
+            <option value="500" selected>500byte (기본)</option>
+            <option value="1000">1000byte</option>
+            <option value="1500">1500byte</option>
+          </select>
         </div>
       </div>
       <div class="btn-row"><button class="btn" onclick="goTab(0)">← 이전</button><button class="btn btn-primary" onclick="goTab(2)">답안 업로드 →</button></div>
@@ -295,6 +321,7 @@ var rubricBase64=null, parsedRubrics=[], totalMin=0, totalMax=0, answerFiles=[],
 var regradeCount=0; // 추가 채점 누적 횟수
 var regradeHistory=[]; // 회차별 채점 이력 [{round:1, results:[...]}, ...]
 var achievementBase64=null, achievementMime='application/pdf', achievementStandard='';
+var modelAnswerPdfBase64=null;
 
 function goTab(i){
   document.querySelectorAll('.page').forEach(function(p,j){p.classList.toggle('active',i===j)});
@@ -351,6 +378,25 @@ async function parsePdf(){
     showNotice('parseNotice','ok','루브릭 '+parsedRubrics.length+'개 항목 추출 완료 · 기본점수: '+totalMin+'점 · 만점: '+totalMax+'점');
   }catch(e){showNotice('parseNotice','err','루브릭 추출 실패: '+e.message);}
   finally{btn.disabled=false;txt.textContent='다시 추출하기';}
+}
+
+// ── 모범 답안 PDF ──
+function onDropModelAnswerPdf(e){e.preventDefault();document.getElementById('modelAnswerDrop').classList.remove('over');var f=e.dataTransfer.files[0];if(f&&f.type==='application/pdf')loadModelAnswerPdf(f)}
+function onModelAnswerPdfSelect(e){var f=e.target.files[0];if(f)loadModelAnswerPdf(f)}
+function loadModelAnswerPdf(f){
+  var r=new FileReader();
+  r.onload=function(ev){
+    modelAnswerPdfBase64=ev.target.result.split(',')[1];
+    document.getElementById('modelAnswerPdfName').textContent=f.name;
+    document.getElementById('modelAnswerPdfSize').textContent=fmtSize(f.size);
+    document.getElementById('modelAnswerPdfInfo').style.display='flex';
+  };
+  r.readAsDataURL(f);
+}
+function removeModelAnswerPdf(){
+  modelAnswerPdfBase64=null;
+  document.getElementById('modelAnswerPdfInfo').style.display='none';
+  document.getElementById('modelAnswerPdfInput').value='';
 }
 
 // ── 성취기준 파일 ──
@@ -430,6 +476,7 @@ async function startGrading(){
   var question=document.getElementById('question').value.trim();
   var modelAnswer=document.getElementById('modelAnswer').value.trim();
   var absentScore=parseInt(document.getElementById('absentScore').value)||0;
+  var setechLength=parseInt(document.getElementById('setechLength').value)||500;
   document.getElementById('showBaseScore').textContent=totalMin;
   document.getElementById('showTotalMax').textContent=totalMax;
   document.getElementById('showAbsentScore').textContent=absentScore;
@@ -463,7 +510,8 @@ async function startGrading(){
         pdfBase64:rubricBase64,answerPdfBase64:answerFiles[idx].base64,
         question:question,modelAnswer:modelAnswer,
         studentName:answerFiles[idx].name,rubrics:parsedRubrics,
-        achievementStandard:achievementStandard
+        achievementStandard:achievementStandard,
+        setechLength:setechLength,modelAnswerPdfBase64:modelAnswerPdfBase64
       });
 
       fetch('/api/grade',{method:'POST',headers:{'Content-Type':'application/json'},body:body})

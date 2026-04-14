@@ -162,13 +162,15 @@ function buildGradePrompt(rubrics, question, modelAnswer, studentName) {
 // ── /api/grade : 채점 + 세특 ──
 app.post('/api/grade', async function(req, res) {
   try {
-    var pdfBase64           = req.body.pdfBase64;
-    var answerPdfBase64     = req.body.answerPdfBase64;
-    var question            = req.body.question;
-    var modelAnswer         = req.body.modelAnswer;
-    var studentName         = req.body.studentName;
-    var rubrics             = req.body.rubrics;
-    var achievementStandard = req.body.achievementStandard || '';
+    var pdfBase64             = req.body.pdfBase64;
+    var answerPdfBase64       = req.body.answerPdfBase64;
+    var question              = req.body.question;
+    var modelAnswer           = req.body.modelAnswer;
+    var studentName           = req.body.studentName;
+    var rubrics               = req.body.rubrics;
+    var achievementStandard   = req.body.achievementStandard || '';
+    var setechLength          = req.body.setechLength || 500;
+    var modelAnswerPdfBase64  = req.body.modelAnswerPdfBase64 || null;
 
     if (!pdfBase64 || !rubrics || !rubrics.length)
       return res.status(400).json({ error: '필수 항목 누락' });
@@ -189,7 +191,7 @@ app.post('/api/grade', async function(req, res) {
       '[세특 작성 원칙]\n' +
       '- 단순 활동 나열이 아닌, 답안에서 드러난 학생의 사고 과정과 역량을 교사가 포착하여 기술하세요.\n' +
       '- 성찰 역량화: 어려움은 끈기로, 흥미는 학습 호기심으로 변환하여 기술하세요.\n' +
-      '- 분량: 공백 포함 500byte 이내, 한 개의 문단.\n' +
+      '- 분량: 공백 포함 ' + setechLength + 'byte 이내, 한 개의 문단.\n' +
       '- 수치, 백분율(%), 괄호()와 그 내용을 모두 제외.\n' +
       '- 어미: ~함, ~보임, ~구현함 등 교사의 관찰자 시점 유지.\n' +
       '- 금지: 학생은/학생이/학생 이름 등 학생 직접 지칭.\n' +
@@ -205,9 +207,12 @@ app.post('/api/grade', async function(req, res) {
       { text: built.prompt }
     ];
     var setechParts = [
-      { inline_data: { mime_type: 'application/pdf', data: answerPdfBase64 } },
-      { text: setechPrompt }
+      { inline_data: { mime_type: 'application/pdf', data: answerPdfBase64 } }
     ];
+    if (modelAnswerPdfBase64) {
+      setechParts.push({ inline_data: { mime_type: 'application/pdf', data: modelAnswerPdfBase64 } });
+    }
+    setechParts.push({ text: setechPrompt });
 
     // 채점
     var gradeResult = await callGemini(URL_FLASH, gradeParts, true);
