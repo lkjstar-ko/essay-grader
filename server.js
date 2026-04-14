@@ -6,21 +6,16 @@ const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-const KEY_FREE = process.env.GEMINI_API_KEY_FREE;
-const KEY_PAID = process.env.GEMINI_API_KEY_PAID;
-const BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
+const KEY   = process.env.GEMINI_API_KEY;
+const BASE  = 'https://generativelanguage.googleapis.com/v1beta/models/';
+const URL_PRO   = BASE + 'gemini-2.5-pro:generateContent?key='   + KEY;
+const URL_FLASH = BASE + 'gemini-2.5-flash:generateContent?key=' + KEY;
 
-// 키별 URL 생성
-function makeUrl(model, key) {
-  return BASE + model + ':generateContent?key=' + key;
-}
-
-// 단일 키로 API 호출
-async function callGeminiWithKey(key, model, parts, jsonMode) {
+async function callGemini(url, parts, jsonMode) {
   var config = jsonMode
     ? { temperature: 0.1, responseMimeType: 'application/json' }
     : { temperature: 0.1 };
-  var res = await fetch(makeUrl(model, key), {
+  var res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ contents: [{ parts: parts }], generationConfig: config })
@@ -31,37 +26,13 @@ async function callGeminiWithKey(key, model, parts, jsonMode) {
   if (!jsonMode) return text.trim();
   var clean = text.trim();
   var start = clean.indexOf('{');
-  var end = clean.lastIndexOf('}');
+  var end   = clean.lastIndexOf('}');
   if (start !== -1 && end !== -1 && end > start) clean = clean.slice(start, end + 1);
   try { return JSON.parse(clean); }
   catch (e) { throw new Error('JSON 파싱 실패: ' + e.message + ' / 원문: ' + clean.slice(0, 100)); }
 }
 
-// 유료 키로만 호출 (무료 키 폴백 제거)
-async function callGemini(model, parts, jsonMode) {
-  var key = KEY_PAID || KEY_FREE;
-  if (!key) throw new Error('API 키가 설정되지 않았습니다.');
-
-  var isDemandError = function(msg) {
-    return msg.includes('high demand') || msg.includes('temporarily') ||
-           msg.includes('try again') || msg.includes('overloaded') ||
-           msg.includes('503') || msg.includes('502');
-  };
-
-  try {
-    return await callGeminiWithKey(key, model, parts, jsonMode);
-  } catch (e) {
-    var msg = e.message || '';
-    // Flash 수요 폭주 시 Pro 폴백
-    if (isDemandError(msg) && model === 'gemini-2.5-flash') {
-      console.log('Flash 수요 폭주 → Pro 폴백:', msg.slice(0, 80));
-      return await callGeminiWithKey(key, 'gemini-2.5-pro', parts, jsonMode);
-    }
-    throw e;
-  }
-}
-
-// ── /api/parse : 루브릭 추출 (Pro, Flash 폴백) ──
+// ── /api/parse : 루브릭 추출 (Pro → Flash 폴백) ──
 app.post('/api/parse', async function(req, res) {
   try {
     var pdfBase64 = req.body.pdfBase64;
@@ -100,10 +71,10 @@ app.post('/api/parse', async function(req, res) {
     ];
 
     var result;
-    try { result = await callGemini('gemini-2.5-pro', parts, true); }
+    try { result = await callGemini(URL_PRO, parts, true); }
     catch (proErr) {
       console.log('Pro 모델 실패, Flash로 폴백:', proErr.message);
-      result = await callGemini('gemini-2.5-flash', parts, true);
+      result = await callGemini(URL_FLASH, parts, true);
     }
     res.json(result);
   } catch (e) {
@@ -111,7 +82,59 @@ app.post('/api/parse', async function(req, res) {
   }
 });
 
-// ── /api/grade : 채점 + 세특 (일반 JSON 응답) ──
+// ── 채점 프롬프트 공통 빌더 ──
+function buildGradePrompt(rubrics, question, modelAnswer, studentName) {
+  var totalMax = rubrics.reduce(function(s, r) { return s + r.max; }, 0);
+
+  var gradeGuide =
+    '등급 기준 (총점 ' + totalMax + '점 기준):\n' +
+    '  A+: ' + Math.round(totalMax * 0.95) + '점 이상\n' +
+    '  A:  ' + Math.round(totalMax * 0.90) + '점 이상\n' +
+    '  B+: ' + Math.round(totalMax * 0.85) + '점 이상\n' +
+    '  B:  ' + Math.round(totalMax * 0.80) + '점 이상\n' +
+    '  C+: ' + Math.round(totalMax * 0.70) + '점 이상\n' +
+    '  C:  ' + Math.round(totalMax * 0.60) + '점 이상\n' +
+    '  D:  ' + Math.round(totalMax * 0.50) + '점 이상\n' +
+    '  F:  ' + Math.round(totalMax * 0.50) + '점 미만';
+
+  var rubricDetail = rubrics.map(function(r, i) {
+    var criteriaStr = '';
+    if (r.criteria && r.criteria.length) {
+      criteriaStr = '\n   수준별 기준:\n' + r.criteria.map(function(c) {
+        return '   - ' + c.level + '(' + c.score + '점): ' + c.desc;
+      }).join('\n');
+    } else {
+      criteriaStr = '\n   (수준별 기준 없음 — ' + r.min + '~' + r.max + '점 범위 내 답안 수준에 따라 부여)';
+    }
+    return (i + 1) + '. [' + r.name + '] ' + r.min + '~' + r.max + '점\n' +
+           '   평가 기준: ' + (r.description || '') + criteriaStr;
+  }).join('\n\n');
+
+  var prompt =
+    '당신은 교육 평가 전문가입니다. 첨부된 두 PDF(①채점 기준, ②학생 답안)를 분석하여 채점하세요.\n\n' +
+    '[평가 대상]\n' +
+    (studentName ? '학생: ' + studentName + '\n' : '') +
+    (question ? '문제: ' + question + '\n\n' : '문제: ①번 PDF(채점 기준)에 포함된 문제를 참고하세요.\n\n') +
+    (modelAnswer ? '[모범 답안]\n' + modelAnswer + '\n\n' : '') +
+    '[채점 루브릭 — 총 ' + totalMax + '점]\n' +
+    rubricDetail + '\n\n' +
+    '[채점 지침]\n' +
+    '1. ②번 PDF의 학생 답안 전체를 꼼꼼히 읽으세요.\n' +
+    '2. 각 루브릭 항목별로 답안의 관련 내용을 찾아 대조하세요.\n' +
+    '3. 수준별 기준이 있으면 해당 수준의 점수를 부여하세요.\n' +
+    '   수준별 기준이 없으면 답안 완성도에 따라 min~max 범위 내에서 부여하세요.\n' +
+    '4. 루브릭 기준에 엄격하게 근거하여 채점하세요. 점수를 관대하게 주지 마세요.\n' +
+    '5. 점수는 반드시 각 항목의 min 이상 max 이하여야 합니다.\n' +
+    '6. 피드백은 답안의 구체적 내용을 언급하며 잘한 점과 개선점을 2~3문장으로 서술하세요.\n\n' +
+    gradeGuide + '\n\n' +
+    '반드시 아래 JSON만 출력하세요:\n' +
+    '{"rubrics":[{"name":"항목명","min":최저점,"max":최고점,"score":부여점수,"feedback":"피드백 2~3문장"}],' +
+    '"total":합계점수,"totalMax":' + totalMax + ',"grade":"등급"}';
+
+  return { prompt: prompt, totalMax: totalMax };
+}
+
+// ── /api/grade : 채점 + 세특 ──
 app.post('/api/grade', async function(req, res) {
   try {
     var pdfBase64       = req.body.pdfBase64;
@@ -126,52 +149,7 @@ app.post('/api/grade', async function(req, res) {
     if (!answerPdfBase64)
       return res.status(400).json({ error: '답안 PDF 필요' });
 
-    var totalMax = rubrics.reduce(function(s, r) { return s + r.max; }, 0);
-
-    var gradeGuide =
-      '등급 기준 (총점 ' + totalMax + '점 기준):\n' +
-      '  A+: ' + Math.round(totalMax * 0.95) + '점 이상\n' +
-      '  A:  ' + Math.round(totalMax * 0.90) + '점 이상\n' +
-      '  B+: ' + Math.round(totalMax * 0.85) + '점 이상\n' +
-      '  B:  ' + Math.round(totalMax * 0.80) + '점 이상\n' +
-      '  C+: ' + Math.round(totalMax * 0.70) + '점 이상\n' +
-      '  C:  ' + Math.round(totalMax * 0.60) + '점 이상\n' +
-      '  D:  ' + Math.round(totalMax * 0.50) + '점 이상\n' +
-      '  F:  ' + Math.round(totalMax * 0.50) + '점 미만';
-
-    var rubricDetail = rubrics.map(function(r, i) {
-      var criteriaStr = '';
-      if (r.criteria && r.criteria.length) {
-        criteriaStr = '\n   수준별 기준:\n' + r.criteria.map(function(c) {
-          return '   - ' + c.level + '(' + c.score + '점): ' + c.desc;
-        }).join('\n');
-      } else {
-        criteriaStr = '\n   (수준별 기준 없음 — ' + r.min + '~' + r.max + '점 범위 내 답안 수준에 따라 부여)';
-      }
-      return (i + 1) + '. [' + r.name + '] ' + r.min + '~' + r.max + '점\n' +
-             '   평가 기준: ' + (r.description || '') + criteriaStr;
-    }).join('\n\n');
-
-    var gradingPrompt =
-      '당신은 교육 평가 전문가입니다. 첨부된 두 PDF(①채점 기준, ②학생 답안)를 분석하여 채점하세요.\n\n' +
-      '[평가 대상]\n' +
-      (studentName ? '학생: ' + studentName + '\n' : '') +
-      (question ? '문제: ' + question + '\n\n' : '문제: ①번 PDF(채점 기준)에 포함된 문제를 참고하세요.\n\n') +
-      (modelAnswer ? '[모범 답안]\n' + modelAnswer + '\n\n' : '') +
-      '[채점 루브릭 — 총 ' + totalMax + '점]\n' +
-      rubricDetail + '\n\n' +
-      '[채점 지침]\n' +
-      '1. ②번 PDF의 학생 답안 전체를 꼼꼼히 읽으세요.\n' +
-      '2. 각 루브릭 항목별로 답안의 관련 내용을 찾아 대조하세요.\n' +
-      '3. 수준별 기준이 있으면 해당 수준의 점수를 부여하세요.\n' +
-      '   수준별 기준이 없으면 답안 완성도에 따라 min~max 범위 내에서 부여하세요.\n' +
-      '4. 루브릭 기준에 엄격하게 근거하여 채점하세요. 점수를 관대하게 주지 마세요.\n' +
-      '5. 점수는 반드시 각 항목의 min 이상 max 이하여야 합니다.\n' +
-      '6. 피드백은 답안의 구체적 내용을 언급하며 잘한 점과 개선점을 2~3문장으로 서술하세요.\n\n' +
-      gradeGuide + '\n\n' +
-      '반드시 아래 JSON만 출력하세요:\n' +
-      '{"rubrics":[{"name":"항목명","min":최저점,"max":최고점,"score":부여점수,"feedback":"피드백 2~3문장"}],' +
-      '"total":합계점수,"totalMax":' + totalMax + ',"grade":"등급"}';
+    var built = buildGradePrompt(rubrics, question, modelAnswer, studentName);
 
     var setechPrompt =
       '당신은 교과 담당 교사입니다. 첨부된 학생의 수행평가 답안을 바탕으로 학교생활기록부 교과 세부능력 및 특기사항(세특)을 작성하세요.\n\n' +
@@ -193,29 +171,20 @@ app.post('/api/grade', async function(req, res) {
     var gradeParts = [
       { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } },
       { inline_data: { mime_type: 'application/pdf', data: answerPdfBase64 } },
-      { text: gradingPrompt }
+      { text: built.prompt }
     ];
     var setechParts = [
       { inline_data: { mime_type: 'application/pdf', data: answerPdfBase64 } },
       { text: setechPrompt }
     ];
 
-    // 채점 (1회 — Render 타임아웃 방지)
-    var gradeResults = [];
-    try {
-      var r = await callGemini('gemini-2.5-flash', gradeParts, true);
-      gradeResults.push(r);
-    } catch (e) {
-      console.log('채점 실패:', e.message);
-    }
-    if (!gradeResults.length) throw new Error('채점 실패');
-
-    var gradeResult = gradeResults[0];
+    // 채점
+    var gradeResult = await callGemini(URL_FLASH, gradeParts, true);
     gradeResult.setech = '';
 
     // 세특
     try {
-      var setechText = await callGemini('gemini-2.5-flash', setechParts, false);
+      var setechText = await callGemini(URL_FLASH, setechParts, false);
       gradeResult.setech = typeof setechText === 'string' ? setechText : '';
     } catch (e) {
       console.log('세특 작성 실패:', e.message);
@@ -223,7 +192,6 @@ app.post('/api/grade', async function(req, res) {
     }
 
     res.json(gradeResult);
-
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -244,62 +212,16 @@ app.post('/api/regrade', async function(req, res) {
     if (!answerPdfBase64)
       return res.status(400).json({ error: '답안 PDF 필요' });
 
-    var totalMax = rubrics.reduce(function(s, r) { return s + r.max; }, 0);
-
-    var gradeGuide =
-      '등급 기준 (총점 ' + totalMax + '점 기준):\n' +
-      '  A+: ' + Math.round(totalMax * 0.95) + '점 이상\n' +
-      '  A:  ' + Math.round(totalMax * 0.90) + '점 이상\n' +
-      '  B+: ' + Math.round(totalMax * 0.85) + '점 이상\n' +
-      '  B:  ' + Math.round(totalMax * 0.80) + '점 이상\n' +
-      '  C+: ' + Math.round(totalMax * 0.70) + '점 이상\n' +
-      '  C:  ' + Math.round(totalMax * 0.60) + '점 이상\n' +
-      '  D:  ' + Math.round(totalMax * 0.50) + '점 이상\n' +
-      '  F:  ' + Math.round(totalMax * 0.50) + '점 미만';
-
-    var rubricDetail = rubrics.map(function(r, i) {
-      var criteriaStr = '';
-      if (r.criteria && r.criteria.length) {
-        criteriaStr = '\n   수준별 기준:\n' + r.criteria.map(function(c) {
-          return '   - ' + c.level + '(' + c.score + '점): ' + c.desc;
-        }).join('\n');
-      } else {
-        criteriaStr = '\n   (수준별 기준 없음 — ' + r.min + '~' + r.max + '점 범위 내 답안 수준에 따라 부여)';
-      }
-      return (i + 1) + '. [' + r.name + '] ' + r.min + '~' + r.max + '점\n' +
-             '   평가 기준: ' + (r.description || '') + criteriaStr;
-    }).join('\n\n');
-
-    var gradingPrompt =
-      '당신은 교육 평가 전문가입니다. 첨부된 두 PDF(①채점 기준, ②학생 답안)를 분석하여 채점하세요.\n\n' +
-      '[평가 대상]\n' +
-      (studentName ? '학생: ' + studentName + '\n' : '') +
-      (question ? '문제: ' + question + '\n\n' : '문제: ①번 PDF(채점 기준)에 포함된 문제를 참고하세요.\n\n') +
-      (modelAnswer ? '[모범 답안]\n' + modelAnswer + '\n\n' : '') +
-      '[채점 루브릭 — 총 ' + totalMax + '점]\n' +
-      rubricDetail + '\n\n' +
-      '[채점 지침]\n' +
-      '1. ②번 PDF의 학생 답안 전체를 꼼꼼히 읽으세요.\n' +
-      '2. 각 루브릭 항목별로 답안의 관련 내용을 찾아 대조하세요.\n' +
-      '3. 수준별 기준이 있으면 해당 수준의 점수를 부여하세요.\n' +
-      '   수준별 기준이 없으면 답안 완성도에 따라 min~max 범위 내에서 부여하세요.\n' +
-      '4. 루브릭 기준에 엄격하게 근거하여 채점하세요. 점수를 관대하게 주지 마세요.\n' +
-      '5. 점수는 반드시 각 항목의 min 이상 max 이하여야 합니다.\n' +
-      '6. 피드백은 답안의 구체적 내용을 언급하며 잘한 점과 개선점을  2~3문장으로 서술하세요.\n\n' +
-      gradeGuide + '\n\n' +
-      '반드시 아래 JSON만 출력하세요:\n' +
-      '{"rubrics":[{"name":"항목명","min":최저점,"max":최고점,"score":부여점수,"feedback":"피드백 2~3문장"}],' +
-      '"total":합계점수,"totalMax":' + totalMax + ',"grade":"등급"}';
+    var built = buildGradePrompt(rubrics, question, modelAnswer, studentName);
 
     var gradeParts = [
       { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } },
       { inline_data: { mime_type: 'application/pdf', data: answerPdfBase64 } },
-      { text: gradingPrompt }
+      { text: built.prompt }
     ];
 
-    var gradeResult = await callGemini('gemini-2.5-flash', gradeParts, true);
+    var gradeResult = await callGemini(URL_FLASH, gradeParts, true);
     res.json(gradeResult);
-
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -308,6 +230,6 @@ app.post('/api/regrade', async function(req, res) {
 var PORT = process.env.PORT || 3000;
 app.listen(PORT, function() {
   console.log('서버 실행중: http://localhost:' + PORT);
-  console.log('유료 키: ' + (KEY_PAID ? '로드됨' : '없음 (FREE 키로 대체)'));  
-  console.log('모델: 루브릭 추출 → Pro(Flash 폴백) / 채점+세특 → Flash(Pro 폴백)');
+  console.log('API 키: ' + (KEY ? '로드됨' : '없음'));
+  console.log('모델: 루브릭 추출 → Pro(Flash 폴백) / 채점+세특 → Flash');
 });
