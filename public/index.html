@@ -276,6 +276,7 @@
 <script>
 var rubricBase64=null, parsedRubrics=[], totalMin=0, totalMax=0, answerFiles=[], gradingResults=[];
 var regradeCount=0; // 추가 채점 누적 횟수
+var regradeHistory=[]; // 회차별 채점 이력 [{round:1, results:[...]}, ...]
 
 function goTab(i){
   document.querySelectorAll('.page').forEach(function(p,j){p.classList.toggle('active',i===j)});
@@ -367,6 +368,7 @@ async function startGrading(){
   if(!rubricBase64||!parsedRubrics.length){alert('루브릭 PDF를 먼저 추출해주세요.');return}
   gradingResults=[];
   regradeCount=0;
+  regradeHistory=[];
   document.getElementById('regradeCount').textContent='';
   goTab(3);
   var total=answerFiles.length;
@@ -484,6 +486,13 @@ async function startRegrade(){
 
   // 기존 결과와 새 결과 점수 평균 누적
   regradeCount++;
+
+  // 이번 회차 이력 저장
+  regradeHistory.push({
+    round: regradeCount,
+    results: newResults.map(function(n){ return {name:n.name, rubrics:n.rubrics, total:n.total}; })
+  });
+
   gradingResults=gradingResults.map(function(r){
     if(!r.ok) return r;
     var newR=newResults.find(function(n){return n.name===r.data.studentName;});
@@ -657,6 +666,42 @@ function exportExcel(){
   ]);
   ws4['!cols']=[{wch:36},{wch:10}];
   XLSX.utils.book_append_sheet(wb,ws4,'점수 세팅');
+
+  // 시트5: 누적 채점 이력 (추가 채점이 1회 이상인 경우만)
+  if(regradeHistory.length > 0){
+    var histHeader=['학생','회차','총점'].concat(parsedRubrics.map(function(r){return r.name;}));
+    var histRows=[histHeader];
+
+    // 1회차 (기본 채점) 먼저
+    gradingResults.forEach(function(r){
+      if(!r.ok) return;
+      var d=r.data;
+      // 기본 채점 점수는 이력 역산 (현재 평균에서 계산하기 어려우므로 1회차로 표기)
+      var scores=parsedRubrics.map(function(rub){
+        var f=d.rubrics&&d.rubrics.find(function(x){return x.name===rub.name;});
+        return f?f.score:'';
+      });
+      histRows.push([d.studentName,'최종평균',d.total].concat(scores));
+    });
+
+    histRows.push([]); // 빈 줄
+
+    // 회차별 이력
+    regradeHistory.forEach(function(hist){
+      hist.results.forEach(function(n){
+        var scores=parsedRubrics.map(function(rub){
+          var f=n.rubrics&&n.rubrics.find(function(x){return x.name===rub.name;});
+          return f?f.score:'';
+        });
+        histRows.push([n.name, hist.round+'회차', n.total].concat(scores));
+      });
+      histRows.push([]);
+    });
+
+    var ws5=XLSX.utils.aoa_to_sheet(histRows);
+    ws5['!cols']=[{wch:14},{wch:8},{wch:8}].concat(parsedRubrics.map(function(){return {wch:14};}));
+    XLSX.utils.book_append_sheet(wb,ws5,'누적 채점 이력');
+  }
 
   var subject=document.getElementById('subject').value.trim()||'채점결과';
   XLSX.writeFile(wb,subject+'_'+today()+'.xlsx');
