@@ -95,6 +95,14 @@
   /* 세특 카드 */
   .setech-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:16px 18px;margin-bottom:10px;box-shadow:var(--shadow)}
   .setech-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px}
+  .feedback-accordion{overflow:hidden;max-height:0;transition:max-height .25s ease}
+  .feedback-accordion.open{max-height:1000px}
+  .feedback-toggle{font-size:11px;color:var(--accent);background:var(--accent-light);border:1px solid var(--accent);border-radius:6px;padding:2px 9px;cursor:pointer;white-space:nowrap}
+  .feedback-row{display:flex;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12px;line-height:1.6}
+  .feedback-row:last-child{border-bottom:none}
+  .feedback-name{font-weight:500;color:var(--text);min-width:130px;flex-shrink:0}
+  .feedback-score{font-family:'DM Mono',monospace;color:var(--accent);min-width:44px;flex-shrink:0}
+  .feedback-text{color:var(--text2)}
   .setech-name{font-size:13px;font-weight:500;color:var(--text)}
   .setech-score{font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;white-space:nowrap}
   .setech-text{font-size:13px;line-height:1.8;color:var(--text);background:var(--surface2);border-radius:var(--radius);padding:12px 14px;margin-bottom:8px}
@@ -545,18 +553,36 @@ function renderSetechList(){
     var bytes=new TextEncoder().encode(setech).length;
     var pct=Math.round((d.total/totalMax)*100);
     var gc=pct>=90?'ga':pct>=70?'gbb':pct>=50?'gc':'gd';
+    var rubrics=d.rubrics||[];
+    var hasFeedback=rubrics.some(function(rub){return rub.feedback;});
+    var feedbackRows=rubrics.map(function(rub){
+      return '<div class="feedback-row">'
+        +'<span class="feedback-name">'+rub.name+'</span>'
+        +'<span class="feedback-score">'+rub.score+'/'+rub.max+'</span>'
+        +'<span class="feedback-text">'+(rub.feedback||'—')+'</span>'
+        +'</div>';
+    }).join('');
     return '<div class="setech-card">'
       +'<div class="setech-header">'
       +'<span class="setech-name"><strong>'+d.studentName+'</strong></span>'
       +'<div style="display:flex;align-items:center;gap:8px">'
       +'<span class="setech-score">'+d.total+'/'+totalMax+'점</span>'
       +'<span class="gb '+gc+'">'+d.grade+'</span>'
+      +(hasFeedback?'<button class="feedback-toggle" onclick="toggleFeedback(this)">항목별 피드백 ▼</button>':'')
       +'<button class="copy-btn" onclick="copySetech(this,\'setech_'+i+'\')">복사</button>'
       +'</div></div>'
       +'<div class="setech-text" id="setech_'+i+'">'+setech+'</div>'
       +'<div class="setech-byte">'+bytes+' byte / 500 byte'+(bytes>500?' ⚠ 초과':'')+'</div>'
+      +(hasFeedback?'<div class="feedback-accordion" style="border-top:1px solid var(--border);margin-top:8px;padding-top:4px">'+feedbackRows+'</div>':'')
       +'</div>';
   }).join('');
+}
+
+function toggleFeedback(btn){
+  var card=btn.closest('.setech-card');
+  var accordion=card.querySelector('.feedback-accordion');
+  var isOpen=accordion.classList.toggle('open');
+  btn.textContent=isOpen?'항목별 피드백 ▲':'항목별 피드백 ▼';
 }
 
 function copySetech(btn, id){

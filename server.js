@@ -6,7 +6,7 @@ const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-const KEY   = process.env.GEMINI_API_KEY;
+const KEY   = process.env.GEMINI_API_KEY_PAID;
 const BASE  = 'https://generativelanguage.googleapis.com/v1beta/models/';
 const URL_PRO   = BASE + 'gemini-2.5-pro:generateContent?key='   + KEY;
 const URL_FLASH = BASE + 'gemini-2.5-flash:generateContent?key=' + KEY;
