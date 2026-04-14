@@ -155,22 +155,6 @@
           <button class="file-remove" onclick="removeRubric()">×</button>
         </div>
       </div>
-      <button class="btn btn-primary btn-full" id="parseBtn" onclick="parsePdf()" disabled><span id="parseTxt">루브릭 추출하기</span></button>
-      <div id="parseNotice"></div>
-      <div class="card" id="rubricCard" style="display:none;margin-top:14px">
-        <div class="card-title">추출된 루브릭 <span id="rubricCount" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:12px"></span></div>
-        <div id="rubricChips"></div>
-        <div class="score-summary">
-          <div class="score-sum-item">
-            <div class="score-sum-num" id="sumMin">—</div>
-            <div class="score-sum-lbl">기본 점수 (최저점 합계)</div>
-          </div>
-          <div class="score-sum-item">
-            <div class="score-sum-num" id="sumMax">—</div>
-            <div class="score-sum-lbl">만점 (최고점 합계)</div>
-          </div>
-        </div>
-      </div>
       <!-- 성취기준 파일 업로드 -->
       <div class="card" style="margin-top:14px">
         <div class="card-title">성취기준 파일 <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:12px;color:var(--text3)">(선택사항)</span></div>
@@ -187,6 +171,22 @@
           <button class="file-remove" onclick="removeAchievement()">×</button>
         </div>
         <div id="achievementNotice" style="margin-top:8px"></div>
+      </div>
+      <button class="btn btn-primary btn-full" id="parseBtn" onclick="parsePdf()" disabled><span id="parseTxt">루브릭 추출하기</span></button>
+      <div id="parseNotice"></div>
+      <div class="card" id="rubricCard" style="display:none;margin-top:14px">
+        <div class="card-title">추출된 루브릭 <span id="rubricCount" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:12px"></span></div>
+        <div id="rubricChips"></div>
+        <div class="score-summary">
+          <div class="score-sum-item">
+            <div class="score-sum-num" id="sumMin">—</div>
+            <div class="score-sum-lbl">기본 점수 (최저점 합계)</div>
+          </div>
+          <div class="score-sum-item">
+            <div class="score-sum-num" id="sumMax">—</div>
+            <div class="score-sum-lbl">만점 (최고점 합계)</div>
+          </div>
+        </div>
       </div>
       <div class="btn-row" style="margin-top:14px"><button class="btn btn-primary" onclick="goTab(1)">과제 설정 →</button></div>
     </div>
