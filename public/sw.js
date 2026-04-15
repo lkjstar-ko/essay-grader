@@ -1,17 +1,9 @@
-const VERSION = '1.4.0';
+const VERSION = '1.4.1';
 const CACHE_NAME = 'essay-grader-' + VERSION;
-var STATIC_ASSETS = [
-  '/',
-  '/index.html'
-];
 
-// 설치 시 기본 파일 캐시
+// 설치 시 기본 파일 캐시 (index.html 제외 — 항상 최신 버전 사용)
 self.addEventListener('install', function(event) {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then(function(cache) {
-      return cache.addAll(STATIC_ASSETS);
-    })
-  );
+  event.waitUntil(caches.open(CACHE_NAME));
   self.skipWaiting();
 });
 
@@ -29,22 +21,27 @@ self.addEventListener('activate', function(event) {
 });
 
 // 네트워크 요청 처리
-// API 요청은 항상 네트워크 우선, 나머지는 캐시 우선
 self.addEventListener('fetch', function(event) {
   var url = new URL(event.request.url);
 
-  // API 요청은 캐시하지 않고 네트워크로만
-  if (url.pathname.startsWith('/api/')) {
-    event.respondWith(fetch(event.request));
+  // API 요청 및 HTML 파일은 항상 네트워크 우선
+  if (url.pathname.startsWith('/api/') ||
+      url.pathname === '/' ||
+      url.pathname === '/index.html' ||
+      url.pathname.endsWith('.html')) {
+    event.respondWith(
+      fetch(event.request).catch(function() {
+        return caches.match(event.request);
+      })
+    );
     return;
   }
 
-  // 정적 파일은 캐시 우선, 없으면 네트워크
+  // 그 외 정적 파일은 캐시 우선, 없으면 네트워크
   event.respondWith(
     caches.match(event.request).then(function(cached) {
       if (cached) return cached;
       return fetch(event.request).then(function(response) {
-        // 성공적인 응답만 캐시에 저장
         if (response && response.status === 200) {
           var clone = response.clone();
           caches.open(CACHE_NAME).then(function(cache) {
