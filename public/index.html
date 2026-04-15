@@ -317,513 +317,458 @@
 </div>
 
 <script>
-var rubricBase64=null, parsedRubrics=[], totalMin=0, totalMax=0, answerFiles=[], gradingResults=[];
-var regradeCount=0; // 추가 채점 누적 횟수
-var regradeHistory=[]; // 회차별 채점 이력 [{round:1, results:[...]}, ...]
-var achievementBase64=null, achievementMime='application/pdf', achievementStandard='';
-var modelAnswerPdfBase64=null;
+let rubricBase64 = null, parsedRubrics = [], totalMin = 0, totalMax = 0;
+let answerFiles = [], gradingResults = [];
+let regradeCount = 0;
+let regradeHistory = [];
+let achievementBase64 = null, achievementMime = 'application/pdf', achievementStandard = '';
+let modelAnswerPdfBase64 = null;
 
-function goTab(i){
-  document.querySelectorAll('.page').forEach(function(p,j){p.classList.toggle('active',i===j)});
-  document.querySelectorAll('.nav-item').forEach(function(n,j){n.classList.toggle('active',i===j)});
+function goTab(i) {
+  document.querySelectorAll('.page').forEach((p, j) => p.classList.toggle('active', i === j));
+  document.querySelectorAll('.nav-item').forEach((n, j) => n.classList.toggle('active', i === j));
 }
-function switchResultTab(i){
-  document.querySelectorAll('.result-tab').forEach(function(t,j){t.classList.toggle('active',i===j)});
-  document.querySelectorAll('.result-pane').forEach(function(p,j){p.classList.toggle('active',i===j)});
+function switchResultTab(i) {
+  document.querySelectorAll('.result-tab').forEach((t, j) => t.classList.toggle('active', i === j));
+  document.querySelectorAll('.result-pane').forEach((p, j) => p.classList.toggle('active', i === j));
 }
-function onDrag(e,id,over){e.preventDefault();document.getElementById(id).classList.toggle('over',over)}
+function onDrag(e, id, over) { e.preventDefault(); document.getElementById(id).classList.toggle('over', over); }
 
 // ── 루브릭 PDF ──
-function onDropRubric(e){e.preventDefault();document.getElementById('rubricDrop').classList.remove('over');var f=e.dataTransfer.files[0];if(f&&f.type==='application/pdf')loadRubricFile(f)}
-function onRubricSelect(e){var f=e.target.files[0];if(f)loadRubricFile(f)}
-function loadRubricFile(f){
-  var r=new FileReader();
-  r.onload=function(ev){
-    rubricBase64=ev.target.result.split(',')[1];
-    document.getElementById('rubricFileName').textContent=f.name;
-    document.getElementById('rubricFileSize').textContent=fmtSize(f.size);
-    document.getElementById('rubricFileInfo').style.display='flex';
-    document.getElementById('parseBtn').disabled=false;
-    document.getElementById('parseNotice').innerHTML='';
+function onDropRubric(e) { e.preventDefault(); document.getElementById('rubricDrop').classList.remove('over'); const f = e.dataTransfer.files[0]; if (f && f.type === 'application/pdf') loadRubricFile(f); }
+function onRubricSelect(e) { const f = e.target.files[0]; if (f) loadRubricFile(f); }
+function loadRubricFile(f) {
+  const r = new FileReader();
+  r.onload = ev => {
+    rubricBase64 = ev.target.result.split(',')[1];
+    document.getElementById('rubricFileName').textContent = f.name;
+    document.getElementById('rubricFileSize').textContent = fmtSize(f.size);
+    document.getElementById('rubricFileInfo').style.display = 'flex';
+    document.getElementById('parseBtn').disabled = false;
+    document.getElementById('parseNotice').innerHTML = '';
   };
   r.readAsDataURL(f);
 }
-function removeRubric(){
-  rubricBase64=null;parsedRubrics=[];totalMin=0;totalMax=0;
-  document.getElementById('rubricFileInfo').style.display='none';
-  document.getElementById('rubricInput').value='';
-  document.getElementById('parseBtn').disabled=true;
-  document.getElementById('rubricCard').style.display='none';
+function removeRubric() {
+  rubricBase64 = null; parsedRubrics = []; totalMin = 0; totalMax = 0;
+  document.getElementById('rubricFileInfo').style.display = 'none';
+  document.getElementById('rubricInput').value = '';
+  document.getElementById('parseBtn').disabled = true;
+  document.getElementById('rubricCard').style.display = 'none';
 }
-async function parsePdf(){
-  var btn=document.getElementById('parseBtn'),txt=document.getElementById('parseTxt');
-  btn.disabled=true;txt.innerHTML='<div class="spinner"></div> 분석 중...';
-  document.getElementById('parseNotice').innerHTML='';
-  document.getElementById('rubricCard').style.display='none';
-  try{
-    var res=await fetch('/api/parse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pdfBase64:rubricBase64})});
-    var data=await res.json();
-    if(data.error)throw new Error(data.error);
-    parsedRubrics=data.rubrics||[];
-    totalMin=data.totalMin||parsedRubrics.reduce(function(s,r){return s+(r.min||0)},0);
-    totalMax=data.totalMax||parsedRubrics.reduce(function(s,r){return s+(r.max||0)},0);
-    document.getElementById('rubricChips').innerHTML=parsedRubrics.map(function(r){
-      return '<div class="rubric-chip"><div><div class="chip-name">'+r.name+'</div>'+(r.description?'<div class="chip-desc">'+r.description+'</div>':'')+'</div><div class="chip-range">'+r.min+' ~ '+r.max+'점</div></div>';
-    }).join('');
-    document.getElementById('rubricCount').textContent='— '+parsedRubrics.length+'개 항목';
-    document.getElementById('sumMin').textContent=totalMin+'점';
-    document.getElementById('sumMax').textContent=totalMax+'점';
-    document.getElementById('rubricCard').style.display='block';
+async function parsePdf() {
+  const btn = document.getElementById('parseBtn'), txt = document.getElementById('parseTxt');
+  btn.disabled = true; txt.innerHTML = '<div class="spinner"></div> 분석 중...';
+  document.getElementById('parseNotice').innerHTML = '';
+  document.getElementById('rubricCard').style.display = 'none';
+  try {
+    const res = await fetch('/api/parse', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pdfBase64: rubricBase64 }) });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    parsedRubrics = data.rubrics || [];
+    totalMin = data.totalMin || parsedRubrics.reduce((s, r) => s + (r.min || 0), 0);
+    totalMax = data.totalMax || parsedRubrics.reduce((s, r) => s + (r.max || 0), 0);
+    document.getElementById('rubricChips').innerHTML = parsedRubrics.map(r =>
+      `<div class="rubric-chip"><div><div class="chip-name">${r.name}</div>${r.description ? `<div class="chip-desc">${r.description}</div>` : ''}</div><div class="chip-range">${r.min} ~ ${r.max}점</div></div>`
+    ).join('');
+    document.getElementById('rubricCount').textContent = `— ${parsedRubrics.length}개 항목`;
+    document.getElementById('sumMin').textContent = `${totalMin}점`;
+    document.getElementById('sumMax').textContent = `${totalMax}점`;
+    document.getElementById('rubricCard').style.display = 'block';
     document.getElementById('nav0').classList.add('done');
-    showNotice('parseNotice','ok','루브릭 '+parsedRubrics.length+'개 항목 추출 완료 · 기본점수: '+totalMin+'점 · 만점: '+totalMax+'점');
-  }catch(e){showNotice('parseNotice','err','루브릭 추출 실패: '+e.message);}
-  finally{btn.disabled=false;txt.textContent='다시 추출하기';}
+    showNotice('parseNotice', 'ok', `루브릭 ${parsedRubrics.length}개 항목 추출 완료 · 기본점수: ${totalMin}점 · 만점: ${totalMax}점`);
+  } catch (e) { showNotice('parseNotice', 'err', '루브릭 추출 실패: ' + e.message); }
+  finally { btn.disabled = false; txt.textContent = '다시 추출하기'; }
 }
 
 // ── 모범 답안 PDF ──
-function onDropModelAnswerPdf(e){e.preventDefault();document.getElementById('modelAnswerDrop').classList.remove('over');var f=e.dataTransfer.files[0];if(f&&f.type==='application/pdf')loadModelAnswerPdf(f)}
-function onModelAnswerPdfSelect(e){var f=e.target.files[0];if(f)loadModelAnswerPdf(f)}
-function loadModelAnswerPdf(f){
-  var r=new FileReader();
-  r.onload=function(ev){
-    modelAnswerPdfBase64=ev.target.result.split(',')[1];
-    document.getElementById('modelAnswerPdfName').textContent=f.name;
-    document.getElementById('modelAnswerPdfSize').textContent=fmtSize(f.size);
-    document.getElementById('modelAnswerPdfInfo').style.display='flex';
+function onDropModelAnswerPdf(e) { e.preventDefault(); document.getElementById('modelAnswerDrop').classList.remove('over'); const f = e.dataTransfer.files[0]; if (f && f.type === 'application/pdf') loadModelAnswerPdf(f); }
+function onModelAnswerPdfSelect(e) { const f = e.target.files[0]; if (f) loadModelAnswerPdf(f); }
+function loadModelAnswerPdf(f) {
+  const r = new FileReader();
+  r.onload = ev => {
+    modelAnswerPdfBase64 = ev.target.result.split(',')[1];
+    document.getElementById('modelAnswerPdfName').textContent = f.name;
+    document.getElementById('modelAnswerPdfSize').textContent = fmtSize(f.size);
+    document.getElementById('modelAnswerPdfInfo').style.display = 'flex';
   };
   r.readAsDataURL(f);
 }
-function removeModelAnswerPdf(){
-  modelAnswerPdfBase64=null;
-  document.getElementById('modelAnswerPdfInfo').style.display='none';
-  document.getElementById('modelAnswerPdfInput').value='';
+function removeModelAnswerPdf() {
+  modelAnswerPdfBase64 = null;
+  document.getElementById('modelAnswerPdfInfo').style.display = 'none';
+  document.getElementById('modelAnswerPdfInput').value = '';
 }
 
 // ── 성취기준 파일 ──
-function onDropAchievement(e){e.preventDefault();document.getElementById('achievementDrop').classList.remove('over');var f=e.dataTransfer.files[0];if(f)loadAchievementFile(f)}
-function onAchievementSelect(e){var f=e.target.files[0];if(f)loadAchievementFile(f)}
-function loadAchievementFile(f){
-  achievementMime=f.type||'application/pdf';
-  var r=new FileReader();
-  r.onload=function(ev){
-    achievementBase64=ev.target.result.split(',')[1];
-    document.getElementById('achievementFileName').textContent=f.name;
-    document.getElementById('achievementFileSize').textContent=fmtSize(f.size);
-    document.getElementById('achievementFileInfo').style.display='flex';
+function onDropAchievement(e) { e.preventDefault(); document.getElementById('achievementDrop').classList.remove('over'); const f = e.dataTransfer.files[0]; if (f) loadAchievementFile(f); }
+function onAchievementSelect(e) { const f = e.target.files[0]; if (f) loadAchievementFile(f); }
+function loadAchievementFile(f) {
+  achievementMime = f.type || 'application/pdf';
+  const r = new FileReader();
+  r.onload = ev => {
+    achievementBase64 = ev.target.result.split(',')[1];
+    document.getElementById('achievementFileName').textContent = f.name;
+    document.getElementById('achievementFileSize').textContent = fmtSize(f.size);
+    document.getElementById('achievementFileInfo').style.display = 'flex';
     parseAchievement();
   };
   r.readAsDataURL(f);
 }
-function removeAchievement(){
-  achievementBase64=null;achievementStandard='';
-  document.getElementById('achievementFileInfo').style.display='none';
-  document.getElementById('achievementInput').value='';
-  document.getElementById('achievementNotice').innerHTML='';
+function removeAchievement() {
+  achievementBase64 = null; achievementStandard = '';
+  document.getElementById('achievementFileInfo').style.display = 'none';
+  document.getElementById('achievementInput').value = '';
+  document.getElementById('achievementNotice').innerHTML = '';
 }
-async function parseAchievement(){
-  var notice=document.getElementById('achievementNotice');
-  notice.innerHTML='<div class="notice notice-info">성취기준 추출 중...</div>';
-  try{
-    var res=await fetch('/api/parse-achievement',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({fileBase64:achievementBase64,mimeType:achievementMime})});
-    var data=await res.json();
-    if(data.error)throw new Error(data.error);
-    achievementStandard=data.text||'';
-    notice.innerHTML='<div class="notice notice-ok">성취기준 추출 완료 ('+achievementStandard.length+'자)</div>';
-  }catch(e){
-    achievementStandard='';
-    notice.innerHTML='<div class="notice notice-err">성취기준 추출 실패: '+e.message+'</div>';
+async function parseAchievement() {
+  const notice = document.getElementById('achievementNotice');
+  notice.innerHTML = '<div class="notice notice-info">성취기준 추출 중...</div>';
+  try {
+    const res = await fetch('/api/parse-achievement', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileBase64: achievementBase64, mimeType: achievementMime }) });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    achievementStandard = data.text || '';
+    notice.innerHTML = `<div class="notice notice-ok">성취기준 추출 완료 (${achievementStandard.length}자)</div>`;
+  } catch (e) {
+    achievementStandard = '';
+    notice.innerHTML = `<div class="notice notice-err">성취기준 추출 실패: ${e.message}</div>`;
   }
 }
 
 // ── 답안 PDF ──
-function onDropAnswers(e){e.preventDefault();document.getElementById('answerDrop').classList.remove('over');loadAnswerFiles(e.dataTransfer.files)}
-function onAnswersSelect(e){loadAnswerFiles(e.target.files)}
-function loadAnswerFiles(files){
-  for(var i=0;i<files.length;i++){
-    (function(f){
-      if(f.type!=='application/pdf')return;
-      var r=new FileReader();
-      r.onload=function(ev){
-        var name=f.name.replace(/\.pdf$/i,'');
-        var idx=answerFiles.findIndex(function(a){return a.name===name});
-        if(idx>=0)answerFiles.splice(idx,1);
-        answerFiles.push({name:name,size:f.size,base64:ev.target.result.split(',')[1]});
-        renderAnswerList();
-      };
-      r.readAsDataURL(f);
-    })(files[i]);
+function onDropAnswers(e) { e.preventDefault(); document.getElementById('answerDrop').classList.remove('over'); loadAnswerFiles(e.dataTransfer.files); }
+function onAnswersSelect(e) { loadAnswerFiles(e.target.files); }
+function loadAnswerFiles(files) {
+  for (const f of files) {
+    if (f.type !== 'application/pdf') continue;
+    const r = new FileReader();
+    r.onload = ev => {
+      const name = f.name.replace(/\.pdf$/i, '');
+      const idx = answerFiles.findIndex(a => a.name === name);
+      if (idx >= 0) answerFiles.splice(idx, 1);
+      answerFiles.push({ name, size: f.size, base64: ev.target.result.split(',')[1] });
+      renderAnswerList();
+    };
+    r.readAsDataURL(f);
   }
 }
-function renderAnswerList(){
-  document.getElementById('answerFileList').innerHTML=answerFiles.map(function(f,i){
-    return '<div class="file-item"><span style="font-size:14px">📄</span><span class="file-item-name">'+f.name+'</span><span class="file-item-size">'+fmtSize(f.size)+'</span><button onclick="removeAnswer('+i+')" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:14px;padding:0 2px">×</button></div>';
-  }).join('');
-  document.getElementById('answerCount').textContent=answerFiles.length>0?answerFiles.length+'개 파일 선택됨':'';
-  document.getElementById('startBtn').disabled=answerFiles.length===0;
+function renderAnswerList() {
+  document.getElementById('answerFileList').innerHTML = answerFiles.map((f, i) =>
+    `<div class="file-item"><span style="font-size:14px">📄</span><span class="file-item-name">${f.name}</span><span class="file-item-size">${fmtSize(f.size)}</span><button onclick="removeAnswer(${i})" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:14px;padding:0 2px">×</button></div>`
+  ).join('');
+  document.getElementById('answerCount').textContent = answerFiles.length > 0 ? `${answerFiles.length}개 파일 선택됨` : '';
+  document.getElementById('startBtn').disabled = answerFiles.length === 0;
 }
-function removeAnswer(i){answerFiles.splice(i,1);renderAnswerList()}
+function removeAnswer(i) { answerFiles.splice(i, 1); renderAnswerList(); }
 
 // ── 채점 실행 ──
-async function startGrading(){
-  if(!rubricBase64||!parsedRubrics.length){alert('루브릭 PDF를 먼저 추출해주세요.');return}
-  gradingResults=[];
-  regradeCount=0;
-  regradeHistory=[];
-  document.getElementById('regradeCount').textContent='';
+async function startGrading() {
+  if (!rubricBase64 || !parsedRubrics.length) { alert('루브릭 PDF를 먼저 추출해주세요.'); return; }
+  gradingResults = [];
+  regradeCount = 0;
+  regradeHistory = [];
+  document.getElementById('regradeCount').textContent = '';
   goTab(3);
-  var total=answerFiles.length;
-  var question=document.getElementById('question').value.trim();
-  var modelAnswer=document.getElementById('modelAnswer').value.trim();
-  var absentScore=parseInt(document.getElementById('absentScore').value)||0;
-  var setechLength=parseInt(document.getElementById('setechLength').value)||500;
-  document.getElementById('showBaseScore').textContent=totalMin;
-  document.getElementById('showTotalMax').textContent=totalMax;
-  document.getElementById('showAbsentScore').textContent=absentScore;
-  document.getElementById('gradingFileList').style.display='block';
-  document.getElementById('resultSection').style.display='none';
-  document.getElementById('resultSub').textContent='채점 진행 중...';
-  document.getElementById('gradingItems').innerHTML=answerFiles.map(function(f,i){
-    return '<div class="file-item" id="gi_'+i+'">'
-      +'<span style="font-size:14px">📄</span>'
-      +'<span class="file-item-name">'+f.name+'</span>'
-      +'<span class="file-item-status s-wait" id="gs_'+i+'">대기중</span>'
-      +'</div>';
-  }).join('');
+  const total = answerFiles.length;
+  const question = document.getElementById('question').value.trim();
+  const modelAnswer = document.getElementById('modelAnswer').value.trim();
+  const absentScore = parseInt(document.getElementById('absentScore').value) || 0;
+  const setechLength = parseInt(document.getElementById('setechLength').value) || 500;
+  document.getElementById('showBaseScore').textContent = totalMin;
+  document.getElementById('showTotalMax').textContent = totalMax;
+  document.getElementById('showAbsentScore').textContent = absentScore;
+  document.getElementById('gradingFileList').style.display = 'block';
+  document.getElementById('resultSection').style.display = 'none';
+  document.getElementById('resultSub').textContent = '채점 진행 중...';
+  document.getElementById('gradingItems').innerHTML = answerFiles.map((f, i) =>
+    `<div class="file-item" id="gi_${i}"><span style="font-size:14px">📄</span><span class="file-item-name">${f.name}</span><span class="file-item-status s-wait" id="gs_${i}">대기중</span></div>`
+  ).join('');
 
-  for(var i=0;i<answerFiles.length;i++){
-    updateProgress(i,total);
-    var gs=document.getElementById('gs_'+i);
+  for (let i = 0; i < answerFiles.length; i++) {
+    updateProgress(i, total);
+    const gs = document.getElementById(`gs_${i}`);
+    gs.textContent = '채점 중...'; gs.className = 'file-item-status s-run';
 
-    await new Promise(function(resolve) {
-      var idx = i;
-      gs.textContent='채점 중...';gs.className='file-item-status s-run';
+    const setechTimer = setTimeout(() => {
+      if (gs.className.includes('s-run')) gs.textContent = '세특 작성 중...';
+    }, 15000);
 
-      // 타이머로 세특 작성 중 표시 (약 15초 후)
-      var setechTimer = setTimeout(function(){
-        if(gs.className.indexOf('s-run') >= 0){
-          gs.textContent='세특 작성 중...';
-        }
-      }, 15000);
-
-      var body=JSON.stringify({
-        pdfBase64:rubricBase64,answerPdfBase64:answerFiles[idx].base64,
-        question:question,modelAnswer:modelAnswer,
-        studentName:answerFiles[idx].name,rubrics:parsedRubrics,
-        achievementStandard:achievementStandard,
-        setechLength:setechLength,modelAnswerPdfBase64:modelAnswerPdfBase64
-      });
-
-      fetch('/api/grade',{method:'POST',headers:{'Content-Type':'application/json'},body:body})
-        .then(function(res){ return res.json(); })
-        .then(function(data){
-          clearTimeout(setechTimer);
-          if(data.error) throw new Error(data.error);
-          data.studentName=answerFiles[idx].name;
-          gradingResults.push({ok:true,data:data});
-          var hasSe=data.setech&&data.setech.length>0;
-          gs.textContent='✓ '+data.total+'/'+totalMax+'점 ('+data.grade+')'+(hasSe?'':'  세특 없음');
-          gs.className='file-item-status s-done';
-          resolve();
-        })
-        .catch(function(e){
-          clearTimeout(setechTimer);
-          gradingResults.push({ok:false,name:answerFiles[idx].name,error:e.message});
-          gs.textContent='오류: '+e.message.slice(0,20);
-          gs.className='file-item-status s-err';
-          resolve();
-        });
+    const body = JSON.stringify({
+      pdfBase64: rubricBase64, answerPdfBase64: answerFiles[i].base64,
+      question, modelAnswer, studentName: answerFiles[i].name,
+      rubrics: parsedRubrics, achievementStandard, setechLength, modelAnswerPdfBase64
     });
+
+    try {
+      const res = await fetch('/api/grade', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      const data = await res.json();
+      clearTimeout(setechTimer);
+      if (data.error) throw new Error(data.error);
+      data.studentName = answerFiles[i].name;
+      gradingResults.push({ ok: true, data });
+      const hasSe = data.setech?.length > 0;
+      gs.textContent = `✓ ${data.total}/${totalMax}점 (${data.grade})${hasSe ? '' : '  세특 없음'}`;
+      gs.className = 'file-item-status s-done';
+    } catch (e) {
+      clearTimeout(setechTimer);
+      gradingResults.push({ ok: false, name: answerFiles[i].name, error: e.message });
+      gs.textContent = '오류: ' + e.message.slice(0, 20);
+      gs.className = 'file-item-status s-err';
+    }
   }
-  updateProgress(total,total);
-  var okCount=gradingResults.filter(function(r){return r.ok}).length;
-  document.getElementById('resultSub').textContent='채점 완료 — '+okCount+'/'+total+'명 성공';
+  }
+  updateProgress(total, total);
+  const okCount = gradingResults.filter(r => r.ok).length;
+  document.getElementById('resultSub').textContent = `채점 완료 — ${okCount}/${total}명 성공`;
   document.getElementById('nav3').classList.add('done');
   renderResultTable();
   renderSetechList();
 }
 
-function updateProgress(done,total){
-  var pct=total>0?Math.round((done/total)*100):0;
-  document.getElementById('progressLabel').textContent=done+' / '+total;
-  document.getElementById('progressPct').textContent=pct+'%';
-  document.getElementById('progressFill').style.width=pct+'%';
+function updateProgress(done, total) {
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  document.getElementById('progressLabel').textContent = `${done} / ${total}`;
+  document.getElementById('progressPct').textContent = `${pct}%`;
+  document.getElementById('progressFill').style.width = `${pct}%`;
 }
 
-async function startRegrade(){
-  var ok=gradingResults.filter(function(r){return r.ok});
-  if(!ok.length){alert('채점 결과가 없습니다.');return;}
-  var btn=document.getElementById('regradeBtn');
-  btn.disabled=true;
-  btn.textContent='🔄 추가 채점 중...';
+async function startRegrade() {
+  const ok = gradingResults.filter(r => r.ok);
+  if (!ok.length) { alert('채점 결과가 없습니다.'); return; }
+  const btn = document.getElementById('regradeBtn');
+  btn.disabled = true;
+  btn.textContent = '🔄 추가 채점 중...';
 
-  var question=document.getElementById('question').value.trim();
-  var modelAnswer=document.getElementById('modelAnswer').value.trim();
-  var newResults=[];
+  const question = document.getElementById('question').value.trim();
+  const modelAnswer = document.getElementById('modelAnswer').value.trim();
+  const newResults = [];
 
-  for(var i=0;i<ok.length;i++){
-    var r=ok[i];
-    var file=answerFiles.find(function(f){return f.name===r.data.studentName;});
-    if(!file) continue;
-
-    try{
-      var body=JSON.stringify({
-        pdfBase64:rubricBase64, answerPdfBase64:file.base64,
-        question:question, modelAnswer:modelAnswer,
-        studentName:r.data.studentName, rubrics:parsedRubrics,
-        achievementStandard:achievementStandard
+  for (const r of ok) {
+    const file = answerFiles.find(f => f.name === r.data.studentName);
+    if (!file) continue;
+    try {
+      const body = JSON.stringify({
+        pdfBase64: rubricBase64, answerPdfBase64: file.base64,
+        question, modelAnswer, studentName: r.data.studentName, rubrics: parsedRubrics
       });
-      var res=await fetch('/api/regrade',{method:'POST',headers:{'Content-Type':'application/json'},body:body});
-      var data=await res.json();
-      if(data.error) throw new Error(data.error);
-      newResults.push({name:r.data.studentName, rubrics:data.rubrics, total:data.total});
-    }catch(e){
-      console.log('추가 채점 실패 ('+r.data.studentName+'):', e.message);
+      const res = await fetch('/api/regrade', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      newResults.push({ name: r.data.studentName, rubrics: data.rubrics, total: data.total });
+    } catch (e) {
+      console.log(`추가 채점 실패 (${r.data.studentName}):`, e.message);
     }
   }
 
-  if(!newResults.length){
+  if (!newResults.length) {
     alert('추가 채점 실패');
-    btn.disabled=false;
-    btn.textContent='🔄 추가 채점 (누적)';
+    btn.disabled = false;
+    btn.textContent = '🔄 추가 채점 (누적)';
     return;
   }
 
   // 기존 결과와 새 결과 점수 평균 누적
   regradeCount++;
 
-  // 이번 회차 이력 저장
   regradeHistory.push({
     round: regradeCount,
-    results: newResults.map(function(n){ return {name:n.name, rubrics:n.rubrics, total:n.total}; })
+    results: newResults.map(n => ({ name: n.name, rubrics: n.rubrics, total: n.total }))
   });
 
-  gradingResults=gradingResults.map(function(r){
-    if(!r.ok) return r;
-    var newR=newResults.find(function(n){return n.name===r.data.studentName;});
-    if(!newR) return r;
+  gradingResults = gradingResults.map(r => {
+    if (!r.ok) return r;
+    const newR = newResults.find(n => n.name === r.data.studentName);
+    if (!newR) return r;
 
-    // 항목별 점수 누적 평균
-    var merged=JSON.parse(JSON.stringify(r.data));
-    merged.rubrics=merged.rubrics.map(function(rub, ri){
-      var newScore=(newR.rubrics&&newR.rubrics[ri])?newR.rubrics[ri].score:rub.score;
-      // 기존 점수(regradeCount번 평균)와 새 점수 평균
-      var avgScore=Math.round((rub.score*regradeCount + newScore)/(regradeCount+1));
-      rub.score=Math.min(rub.max, Math.max(rub.min, avgScore));
+    const merged = JSON.parse(JSON.stringify(r.data));
+    merged.rubrics = merged.rubrics.map((rub, ri) => {
+      // 기존 점수(regradeCount번 평균)와 새 점수 가중 평균
+      const newScore = newR.rubrics?.[ri]?.score ?? rub.score;
+      const avgScore = Math.round((rub.score * regradeCount + newScore) / (regradeCount + 1));
+      rub.score = Math.min(rub.max, Math.max(rub.min, avgScore));
       return rub;
     });
-    merged.total=merged.rubrics.reduce(function(s,rub){return s+rub.score;},0);
-    var pct=merged.total/totalMax;
-    merged.grade=pct>=0.95?'A+':pct>=0.90?'A':pct>=0.85?'B+':
-                 pct>=0.80?'B':pct>=0.70?'C+':pct>=0.60?'C':
-                 pct>=0.50?'D':'F';
-    return {ok:true, data:merged};
+    merged.total = merged.rubrics.reduce((s, rub) => s + rub.score, 0);
+    const pct = merged.total / totalMax;
+    merged.grade = pct >= 0.95 ? 'A+' : pct >= 0.90 ? 'A' : pct >= 0.85 ? 'B+' :
+                   pct >= 0.80 ? 'B' : pct >= 0.70 ? 'C+' : pct >= 0.60 ? 'C' :
+                   pct >= 0.50 ? 'D' : 'F';
+    return { ok: true, data: merged };
   });
 
-  regradeCount++;
   renderResultTable();
-  document.getElementById('regradeCount').textContent='누적 채점 '+regradeCount+'회';
-  btn.disabled=false;
-  btn.textContent='🔄 추가 채점 (누적)';
+  document.getElementById('regradeCount').textContent = `누적 채점 ${regradeCount}회`;
+  btn.disabled = false;
+  btn.textContent = '🔄 추가 채점 (누적)';
 }
 
-function renderResultTable(){
-  var absentScore=parseInt(document.getElementById('absentScore').value)||0;
-  document.getElementById('resultSection').style.display='block';
-  document.getElementById('resultCount').textContent='— '+gradingResults.length+'명';
-  var rubCols=parsedRubrics.map(function(r){
-    return '<th>'+r.name+'<br><span style="font-weight:400;color:var(--text3);font-family:DM Mono,monospace">'+r.min+'~'+r.max+'</span></th>';
-  }).join('');
-  document.getElementById('resultHead').innerHTML='<tr><th>학생</th>'+rubCols+'<th>AI채점점수</th><th>등급</th><th class="col-sep">기본점수</th><th>미응시점수</th></tr>';
-  document.getElementById('resultBody').innerHTML=gradingResults.map(function(r){
-    if(r.ok){
-      var d=r.data;
-      var pct=Math.round((d.total/totalMax)*100);
-      var gc=pct>=90?'ga':pct>=70?'gbb':pct>=50?'gc':'gd';
-      var rubCells=parsedRubrics.map(function(rub){
-        var found=d.rubrics&&d.rubrics.find(function(x){return x.name===rub.name});
-        return '<td>'+(found?found.score:'—')+'</td>';
+function renderResultTable() {
+  document.getElementById('resultSection').style.display = 'block';
+  document.getElementById('resultCount').textContent = `— ${gradingResults.length}명`;
+  const rubCols = parsedRubrics.map(r =>
+    `<th>${r.name}<br><span style="font-weight:400;color:var(--text3);font-family:DM Mono,monospace">${r.min}~${r.max}</span></th>`
+  ).join('');
+  document.getElementById('resultHead').innerHTML = `<tr><th>학생</th>${rubCols}<th>AI채점점수</th><th>등급</th><th class="col-sep">기본점수</th><th>미응시점수</th></tr>`;
+  document.getElementById('resultBody').innerHTML = gradingResults.map(r => {
+    if (r.ok) {
+      const d = r.data;
+      const pct = Math.round((d.total / totalMax) * 100);
+      const gc = pct >= 90 ? 'ga' : pct >= 70 ? 'gbb' : pct >= 50 ? 'gc' : 'gd';
+      const rubCells = parsedRubrics.map(rub => {
+        const found = d.rubrics?.find(x => x.name === rub.name);
+        return `<td>${found ? found.score : '—'}</td>`;
       }).join('');
-      return '<tr><td><strong>'+d.studentName+'</strong></td>'+rubCells
-        +'<td><strong>'+d.total+'</strong>/'+totalMax+'</td>'
-        +'<td><span class="gb '+gc+'">'+d.grade+'</span></td>'
-        +'<td class="col-sep">'+totalMin+'</td>'
-        +'<td style="color:var(--text3)">—</td></tr>';
+      return `<tr><td><strong>${d.studentName}</strong></td>${rubCells}<td><strong>${d.total}</strong>/${totalMax}</td><td><span class="gb ${gc}">${d.grade}</span></td><td class="col-sep">${totalMin}</td><td style="color:var(--text3)">—</td></tr>`;
     } else {
-      var emptyCells=parsedRubrics.map(function(){return '<td></td>';}).join('');
-      return '<tr><td><strong>'+r.name+'</strong></td>'+emptyCells
-        +'<td style="color:var(--danger);font-size:11px">오류</td><td></td>'
-        +'<td class="col-sep">'+totalMin+'</td>'
-        +'<td style="color:var(--text3)">—</td></tr>';
+      const emptyCells = parsedRubrics.map(() => '<td></td>').join('');
+      return `<tr><td><strong>${r.name}</strong></td>${emptyCells}<td style="color:var(--danger);font-size:11px">오류</td><td></td><td class="col-sep">${totalMin}</td><td style="color:var(--text3)">—</td></tr>`;
     }
   }).join('');
 }
 
-function renderSetechList(){
-  var ok=gradingResults.filter(function(r){return r.ok});
-  document.getElementById('setechList').innerHTML=ok.map(function(r,i){
-    var d=r.data;
-    var setech=d.setech||'세특 문구 없음';
-    var bytes=new TextEncoder().encode(setech).length;
-    var pct=Math.round((d.total/totalMax)*100);
-    var gc=pct>=90?'ga':pct>=70?'gbb':pct>=50?'gc':'gd';
-    var rubrics=d.rubrics||[];
-    var hasFeedback=rubrics.some(function(rub){return rub.feedback;});
-    var feedbackRows=rubrics.map(function(rub){
-      return '<div class="feedback-row">'
-        +'<span class="feedback-name">'+rub.name+'</span>'
-        +'<span class="feedback-score">'+rub.score+'/'+rub.max+'</span>'
-        +'<span class="feedback-text">'+(rub.feedback||'—')+'</span>'
-        +'</div>';
-    }).join('');
-    return '<div class="setech-card">'
-      +'<div class="setech-header">'
-      +'<span class="setech-name"><strong>'+d.studentName+'</strong></span>'
-      +'<div style="display:flex;align-items:center;gap:8px">'
-      +'<span class="setech-score">'+d.total+'/'+totalMax+'점</span>'
-      +'<span class="gb '+gc+'">'+d.grade+'</span>'
-      +(hasFeedback?'<button class="feedback-toggle" onclick="toggleFeedback(this)">항목별 피드백 ▼</button>':'')
-      +'<button class="copy-btn" onclick="copySetech(this,\'setech_'+i+'\')">복사</button>'
-      +'</div></div>'
-      +'<div class="setech-text" id="setech_'+i+'">'+setech+'</div>'
-      +'<div class="setech-byte">'+bytes+' byte / 500 byte'+(bytes>500?' ⚠ 초과':'')+'</div>'
-      +(hasFeedback?'<div class="feedback-accordion" style="border-top:1px solid var(--border);margin-top:8px;padding-top:4px">'+feedbackRows+'</div>':'')
-      +'</div>';
+function renderSetechList() {
+  const ok = gradingResults.filter(r => r.ok);
+  const setechLimit = parseInt(document.getElementById('setechLength').value) || 500;
+  document.getElementById('setechList').innerHTML = ok.map((r, i) => {
+    const d = r.data;
+    const setech = d.setech || '세특 문구 없음';
+    const bytes = new TextEncoder().encode(setech).length;
+    const pct = Math.round((d.total / totalMax) * 100);
+    const gc = pct >= 90 ? 'ga' : pct >= 70 ? 'gbb' : pct >= 50 ? 'gc' : 'gd';
+    const rubrics = d.rubrics || [];
+    const hasFeedback = rubrics.some(rub => rub.feedback);
+    const feedbackRows = rubrics.map(rub =>
+      `<div class="feedback-row"><span class="feedback-name">${rub.name}</span><span class="feedback-score">${rub.score}/${rub.max}</span><span class="feedback-text">${rub.feedback || '—'}</span></div>`
+    ).join('');
+    return `<div class="setech-card">`
+      + `<div class="setech-header"><span class="setech-name"><strong>${d.studentName}</strong></span>`
+      + `<div style="display:flex;align-items:center;gap:8px">`
+      + `<span class="setech-score">${d.total}/${totalMax}점</span>`
+      + `<span class="gb ${gc}">${d.grade}</span>`
+      + (hasFeedback ? `<button class="feedback-toggle" onclick="toggleFeedback(this)">항목별 피드백 ▼</button>` : '')
+      + `<button class="copy-btn" onclick="copySetech(this,'setech_${i}')">복사</button>`
+      + `</div></div>`
+      + `<div class="setech-text" id="setech_${i}">${setech}</div>`
+      + `<div class="setech-byte">${bytes} byte / ${setechLimit} byte${bytes > setechLimit ? ' ⚠ 초과' : ''}</div>`
+      + (hasFeedback ? `<div class="feedback-accordion" style="border-top:1px solid var(--border);margin-top:8px;padding-top:4px">${feedbackRows}</div>` : '')
+      + `</div>`;
   }).join('');
 }
 
-function toggleFeedback(btn){
-  var card=btn.closest('.setech-card');
-  var accordion=card.querySelector('.feedback-accordion');
-  var isOpen=accordion.classList.toggle('open');
-  btn.textContent=isOpen?'항목별 피드백 ▲':'항목별 피드백 ▼';
+function toggleFeedback(btn) {
+  const card = btn.closest('.setech-card');
+  const accordion = card.querySelector('.feedback-accordion');
+  const isOpen = accordion.classList.toggle('open');
+  btn.textContent = isOpen ? '항목별 피드백 ▲' : '항목별 피드백 ▼';
 }
 
-function copySetech(btn, id){
-  var text=document.getElementById(id).textContent;
-  navigator.clipboard.writeText(text).then(function(){
-    btn.textContent='복사됨';btn.classList.add('copied');
-    setTimeout(function(){btn.textContent='복사';btn.classList.remove('copied');},2000);
+function copySetech(btn, id) {
+  const text = document.getElementById(id).textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '복사됨'; btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = '복사'; btn.classList.remove('copied'); }, 2000);
   });
 }
 
 // ── 엑셀 내보내기 ──
-function exportExcel(){
-  var absentScore=parseInt(document.getElementById('absentScore').value)||0;
-  var wb=XLSX.utils.book_new();
+function exportExcel() {
+  const absentScore = parseInt(document.getElementById('absentScore').value) || 0;
+  const wb = XLSX.utils.book_new();
 
   // 시트1: 채점 결과
-  var header=['학생']
-    .concat(parsedRubrics.map(function(r){return r.name+'('+r.min+'~'+r.max+')'}))
-    .concat(['AI채점점수','만점','달성률(%)','등급','기본점수(최저)','미응시점수']);
-  var rows=gradingResults.map(function(r){
-    if(r.ok){
-      var d=r.data;
-      var scores=parsedRubrics.map(function(rub){
-        var f=d.rubrics&&d.rubrics.find(function(x){return x.name===rub.name});
-        return f?f.score:'';
-      });
-      return [d.studentName].concat(scores).concat([d.total,totalMax,Math.round((d.total/totalMax)*100),d.grade,totalMin,'']);
-    } else {
-      return [r.name].concat(parsedRubrics.map(function(){return ''})).concat(['오류',totalMax,'','',totalMin,'']);
+  const header = ['학생']
+    .concat(parsedRubrics.map(r => `${r.name}(${r.min}~${r.max})`))
+    .concat(['AI채점점수', '만점', '달성률(%)', '등급', '기본점수(최저)', '미응시점수']);
+  const rows = gradingResults.map(r => {
+    if (r.ok) {
+      const d = r.data;
+      const scores = parsedRubrics.map(rub => d.rubrics?.find(x => x.name === rub.name)?.score ?? '');
+      return [d.studentName].concat(scores).concat([d.total, totalMax, Math.round((d.total / totalMax) * 100), d.grade, totalMin, '']);
     }
+    return [r.name].concat(parsedRubrics.map(() => '')).concat(['오류', totalMax, '', '', totalMin, '']);
   });
-  var ws1=XLSX.utils.aoa_to_sheet([header].concat(rows));
-  ws1['!cols']=header.map(function(){return {wch:14}});
-  XLSX.utils.book_append_sheet(wb,ws1,'채점 결과');
+  const ws1 = XLSX.utils.aoa_to_sheet([header].concat(rows));
+  ws1['!cols'] = header.map(() => ({ wch: 14 }));
+  XLSX.utils.book_append_sheet(wb, ws1, '채점 결과');
 
   // 시트2: 세특 문구
-  var setechRows=[['학생','등급','AI채점점수','세특 문구','byte수']];
-  gradingResults.forEach(function(r){
-    if(!r.ok)return;
-    var d=r.data;
-    var setech=d.setech||'';
-    var bytes=new TextEncoder().encode(setech).length;
-    setechRows.push([d.studentName,d.grade,d.total+'/'+totalMax,setech,bytes]);
+  const setechRows = [['학생', '등급', 'AI채점점수', '세특 문구', 'byte수']];
+  gradingResults.forEach(r => {
+    if (!r.ok) return;
+    const d = r.data;
+    const setech = d.setech || '';
+    setechRows.push([d.studentName, d.grade, `${d.total}/${totalMax}`, setech, new TextEncoder().encode(setech).length]);
   });
-  var ws2=XLSX.utils.aoa_to_sheet(setechRows);
-  ws2['!cols']=[{wch:14},{wch:6},{wch:12},{wch:80},{wch:8}];
-  XLSX.utils.book_append_sheet(wb,ws2,'세특 문구');
+  const ws2 = XLSX.utils.aoa_to_sheet(setechRows);
+  ws2['!cols'] = [{ wch: 14 }, { wch: 6 }, { wch: 12 }, { wch: 80 }, { wch: 8 }];
+  XLSX.utils.book_append_sheet(wb, ws2, '세특 문구');
 
   // 시트3: 피드백 상세
-  var fbRows=[['학생','항목','최저','만점','점수','항목별 피드백']];
-  gradingResults.forEach(function(r){
-    if(!r.ok)return;
-    var d=r.data;
-    if(d.rubrics)d.rubrics.forEach(function(rub){
-      fbRows.push([d.studentName,rub.name,rub.min,rub.max,rub.score,rub.feedback]);
+  const fbRows = [['학생', '항목', '최저', '만점', '점수', '항목별 피드백']];
+  gradingResults.forEach(r => {
+    if (!r.ok) return;
+    const d = r.data;
+    if (d.rubrics) d.rubrics.forEach(rub => {
+      fbRows.push([d.studentName, rub.name, rub.min, rub.max, rub.score, rub.feedback]);
     });
     fbRows.push([]);
   });
-  var ws3=XLSX.utils.aoa_to_sheet(fbRows);
-  ws3['!cols']=[{wch:14},{wch:18},{wch:6},{wch:6},{wch:6},{wch:60}];
-  XLSX.utils.book_append_sheet(wb,ws3,'항목별 피드백');
+  const ws3 = XLSX.utils.aoa_to_sheet(fbRows);
+  ws3['!cols'] = [{ wch: 14 }, { wch: 18 }, { wch: 6 }, { wch: 6 }, { wch: 6 }, { wch: 60 }];
+  XLSX.utils.book_append_sheet(wb, ws3, '항목별 피드백');
 
   // 시트4: 점수 세팅
-  var ws4=XLSX.utils.aoa_to_sheet([
-    ['수행평가 점수 세팅'],[''],
-    ['기본 점수 (루브릭 최저점 합계)',totalMin],
-    ['만점 (루브릭 최고점 합계)',totalMax],
-    ['미응시자 점수',absentScore],[''],
+  const ws4 = XLSX.utils.aoa_to_sheet([
+    ['수행평가 점수 세팅'], [''],
+    ['기본 점수 (루브릭 최저점 합계)', totalMin],
+    ['만점 (루브릭 최고점 합계)', totalMax],
+    ['미응시자 점수', absentScore], [''],
     ['※ 기본 점수는 루브릭 PDF에서 자동 추출된 최저점 합계입니다.'],
-    ['※ AI 채점 점수 범위: '+totalMin+' ~ '+totalMax+'점'],
+    [`※ AI 채점 점수 범위: ${totalMin} ~ ${totalMax}점`],
     ['※ 미응시자 점수는 AI 채점 없이 별도 부여됩니다.']
   ]);
-  ws4['!cols']=[{wch:36},{wch:10}];
-  XLSX.utils.book_append_sheet(wb,ws4,'점수 세팅');
+  ws4['!cols'] = [{ wch: 36 }, { wch: 10 }];
+  XLSX.utils.book_append_sheet(wb, ws4, '점수 세팅');
 
   // 시트5: 누적 채점 이력 (추가 채점이 1회 이상인 경우만)
-  if(regradeHistory.length > 0){
-    var histHeader=['학생','회차','총점'].concat(parsedRubrics.map(function(r){return r.name;}));
-    var histRows=[histHeader];
-
-    // 1회차 (기본 채점) 먼저
-    gradingResults.forEach(function(r){
-      if(!r.ok) return;
-      var d=r.data;
-      // 기본 채점 점수는 이력 역산 (현재 평균에서 계산하기 어려우므로 1회차로 표기)
-      var scores=parsedRubrics.map(function(rub){
-        var f=d.rubrics&&d.rubrics.find(function(x){return x.name===rub.name;});
-        return f?f.score:'';
-      });
-      histRows.push([d.studentName,'최종평균',d.total].concat(scores));
+  if (regradeHistory.length > 0) {
+    const histHeader = ['학생', '회차', '총점'].concat(parsedRubrics.map(r => r.name));
+    const histRows = [histHeader];
+    gradingResults.forEach(r => {
+      if (!r.ok) return;
+      const d = r.data;
+      const scores = parsedRubrics.map(rub => d.rubrics?.find(x => x.name === rub.name)?.score ?? '');
+      histRows.push([d.studentName, '최종평균', d.total].concat(scores));
     });
-
-    histRows.push([]); // 빈 줄
-
-    // 회차별 이력
-    regradeHistory.forEach(function(hist){
-      hist.results.forEach(function(n){
-        var scores=parsedRubrics.map(function(rub){
-          var f=n.rubrics&&n.rubrics.find(function(x){return x.name===rub.name;});
-          return f?f.score:'';
-        });
-        histRows.push([n.name, hist.round+'회차', n.total].concat(scores));
+    histRows.push([]);
+    regradeHistory.forEach(hist => {
+      hist.results.forEach(n => {
+        const scores = parsedRubrics.map(rub => n.rubrics?.find(x => x.name === rub.name)?.score ?? '');
+        histRows.push([n.name, `${hist.round}회차`, n.total].concat(scores));
       });
       histRows.push([]);
     });
-
-    var ws5=XLSX.utils.aoa_to_sheet(histRows);
-    ws5['!cols']=[{wch:14},{wch:8},{wch:8}].concat(parsedRubrics.map(function(){return {wch:14};}));
-    XLSX.utils.book_append_sheet(wb,ws5,'누적 채점 이력');
+    const ws5 = XLSX.utils.aoa_to_sheet(histRows);
+    ws5['!cols'] = [{ wch: 14 }, { wch: 8 }, { wch: 8 }].concat(parsedRubrics.map(() => ({ wch: 14 })));
+    XLSX.utils.book_append_sheet(wb, ws5, '누적 채점 이력');
   }
 
-  var subject=document.getElementById('subject').value.trim()||'채점결과';
-  XLSX.writeFile(wb,subject+'_'+today()+'.xlsx');
+  const subject = document.getElementById('subject').value.trim() || '채점결과';
+  XLSX.writeFile(wb, `${subject}_${today()}.xlsx`);
 }
 
-function today(){var d=new Date();return d.getFullYear()+''+(d.getMonth()+1+'').padStart(2,'0')+(d.getDate()+'').padStart(2,'0')}
-function fmtSize(b){return b>1048576?(b/1048576).toFixed(1)+'MB':(b/1024).toFixed(0)+'KB'}
-function showNotice(id,type,msg){document.getElementById(id).innerHTML='<div class="notice notice-'+(type==='err'?'err':'ok')+'">'+msg+'</div>'}
+function today() { return new Date().toISOString().slice(0, 10).replace(/-/g, ''); }
+function fmtSize(b) { return b > 1048576 ? (b / 1048576).toFixed(1) + 'MB' : (b / 1024).toFixed(0) + 'KB'; }
+function showNotice(id, type, msg) { document.getElementById(id).innerHTML = `<div class="notice notice-${type === 'err' ? 'err' : 'ok'}">${msg}</div>`; }
 
 // PWA 서비스워커 등록
-if('serviceWorker' in navigator){
-  window.addEventListener('load', function(){
-    navigator.serviceWorker.register('/sw.js').then(function(reg){
-      console.log('SW 등록 완료:', reg.scope);
-    }).catch(function(err){
-      console.log('SW 등록 실패:', err);
-    });
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then(reg => console.log('SW 등록 완료:', reg.scope))
+      .catch(err => console.log('SW 등록 실패:', err));
   });
 }
 </script>
