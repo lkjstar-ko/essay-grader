@@ -519,7 +519,6 @@ async function startGrading() {
       gs.className = 'file-item-status s-err';
     }
   }
-  }
   updateProgress(total, total);
   const okCount = gradingResults.filter(r => r.ok).length;
   document.getElementById('resultSub').textContent = `채점 완료 — ${okCount}/${total}명 성공`;
