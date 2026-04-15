@@ -132,6 +132,7 @@
     <button class="nav-item" id="nav2" onclick="goTab(2)"><span class="nav-num">3</span> 답안 업로드</button>
     <button class="nav-item" id="nav3" onclick="goTab(3)"><span class="nav-num">4</span> 채점 결과</button>
     <div class="sidebar-footer">제주고등학교</div>
+    <div id="appVersion" style="font-size:10px;color:var(--text3);text-align:center;padding-bottom:4px"></div>
   </aside>
 
   <main class="main">
@@ -762,6 +763,15 @@ function exportExcel() {
 function today() { return new Date().toISOString().slice(0, 10).replace(/-/g, ''); }
 function fmtSize(b) { return b > 1048576 ? (b / 1048576).toFixed(1) + 'MB' : (b / 1024).toFixed(0) + 'KB'; }
 function showNotice(id, type, msg) { document.getElementById(id).innerHTML = `<div class="notice notice-${type === 'err' ? 'err' : 'ok'}">${msg}</div>`; }
+
+// 버전 표시
+fetch('/sw.js')
+  .then(r => r.text())
+  .then(text => {
+    const m = text.match(/const VERSION = '([^']+)'/);
+    if (m) document.getElementById('appVersion').textContent = 'v' + m[1];
+  })
+  .catch(() => {});
 
 // PWA 서비스워커 등록
 if ('serviceWorker' in navigator) {
