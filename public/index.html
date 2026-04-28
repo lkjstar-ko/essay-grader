@@ -126,6 +126,9 @@
   .upload-tab:not(:last-child){border-right:1px solid var(--border)}
   .split-radio-group{display:flex;flex-direction:column;gap:8px;margin-top:4px}
   .split-radio-label{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:400;color:var(--text);cursor:pointer;margin-bottom:0}
+  .split-name-input{flex:1;border:1px solid transparent;border-radius:6px;padding:2px 6px;font-size:12px;font-family:'Noto Sans KR',sans-serif;background:transparent;color:var(--text);min-width:0;transition:border-color .15s,background .15s}
+  .split-name-input:hover{border-color:var(--border);background:var(--surface)}
+  .split-name-input:focus{outline:none;border-color:var(--accent);background:var(--surface);box-shadow:0 0 0 2px rgba(45,90,61,.08)}
   @media(max-width:700px){.layout{grid-template-columns:1fr}.sidebar{height:auto;position:static}.main{padding:24px 16px}}
 </style>
 </head>
@@ -882,6 +885,10 @@ function removeCombinedPdf() {
   answerFiles = answerFiles.filter(a => !a.fromSplit);
   document.getElementById('startBtn').disabled = answerFiles.length === 0;
 }
+function updateSplitName(input) {
+  const idx = parseInt(input.dataset.idx);
+  if (answerFiles[idx]) answerFiles[idx].name = input.value;
+}
 function onSplitModeChange() {
   const mode = document.querySelector('input[name="splitMode"]:checked').value;
   document.getElementById('manualPagesInput').style.display = mode === 'manual' ? 'inline-block' : 'none';
@@ -911,9 +918,10 @@ async function splitCombinedPdf() {
     students.forEach(s => {
       answerFiles.push({ name: s.name, size: Math.round(s.base64.length * 0.75), base64: s.base64, fromSplit: true, pageRange: s.pageRange });
     });
+    const splitOffset = answerFiles.length - students.length;
     document.getElementById('splitResultCount').textContent = `— ${students.length}명`;
-    document.getElementById('splitResultList').innerHTML = students.map(s =>
-      `<div class="file-item"><span style="font-size:14px">📄</span><span class="file-item-name">${s.name}</span><span class="file-item-size">${s.pageRange}</span></div>`
+    document.getElementById('splitResultList').innerHTML = students.map((s, i) =>
+      `<div class="file-item"><span style="font-size:14px">📄</span><input class="split-name-input" data-idx="${splitOffset + i}" value="${s.name}" oninput="updateSplitName(this)"><span class="file-item-size">${s.pageRange}</span></div>`
     ).join('');
     document.getElementById('splitResultArea').style.display = 'block';
     showNotice('splitNotice', 'ok', `${students.length}명 분할 완료 · 채점 시작 버튼을 눌러 채점하세요.`);
