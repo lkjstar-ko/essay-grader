@@ -318,7 +318,7 @@ app.post('/api/split-pdf', async (req, res) => {
       const indices = [];
       for (let p = range.start; p <= range.end; p++) indices.push(p);
       if (!indices.length) continue;
-      const copied = await destDoc.copyPagesFrom(srcDoc, indices);
+      const copied = await destDoc.copyPages(srcDoc, indices);
       copied.forEach(p => destDoc.addPage(p));
       const bytes = await destDoc.save();
       splitResults.push({
