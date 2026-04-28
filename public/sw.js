@@ -1,4 +1,4 @@
-const VERSION = '1.4.1';
+const VERSION = '1.5';
 const CACHE_NAME = 'essay-grader-' + VERSION;
 
 // 설치 시 기본 파일 캐시 (index.html 제외 — 항상 최신 버전 사용)
