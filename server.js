@@ -252,6 +252,88 @@ app.post('/api/regrade', async (req, res) => {
   }
 });
 
+// ── /api/split-pdf : 통합 PDF 분할 ──
+app.post('/api/split-pdf', async (req, res) => {
+  try {
+    const { pdfBase64, studentCount, splitMode, pagesPerStudent = 1 } = req.body;
+    if (!pdfBase64) return res.status(400).json({ error: 'pdfBase64 필요' });
+    const count = parseInt(studentCount);
+    if (!count || count < 1 || count > 50) return res.status(400).json({ error: '학생 수는 1~50이어야 합니다' });
+
+    const { PDFDocument } = require('pdf-lib');
+    const pdfBytes = Buffer.from(pdfBase64, 'base64');
+    const srcDoc = await PDFDocument.load(pdfBytes);
+    const totalPages = srcDoc.getPageCount();
+
+    let ranges = [];
+
+    if (splitMode === 'auto') {
+      const prompt = `이 PDF는 ${count}명 학생의 답안이 순서대로 합쳐진 통합 PDF입니다.
+총 페이지 수: ${totalPages}페이지.
+각 학생의 답안이 몇 페이지부터 몇 페이지까지인지 경계를 분석하세요.
+학생 이름/번호가 PDF에 명시되어 있으면 추출하고, 없으면 null을 넣으세요.
+모든 페이지(1~${totalPages})가 빠짐없이 포함되어야 합니다.
+반드시 JSON만 출력하세요 (pageNumber는 1부터 시작):
+{"students":[{"name":"이름 또는 null","startPage":1,"endPage":2}]}`;
+
+      const parts = [
+        { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } },
+        { text: prompt }
+      ];
+
+      let result;
+      try {
+        result = await callGemini(URL_FLASH, parts, true);
+      } catch (e) {
+        result = { students: [] };
+      }
+      const students = result.students || [];
+
+      if (students.length > 0) {
+        ranges = students.map((s, i) => ({
+          start: Math.max(0, (s.startPage || 1) - 1),
+          end: Math.min(totalPages - 1, (s.endPage || s.startPage || 1) - 1),
+          name: s.name || `학생${i + 1}`
+        }));
+      } else {
+        const pages = Math.ceil(totalPages / count);
+        for (let i = 0; i < count; i++) {
+          const start = i * pages;
+          if (start >= totalPages) break;
+          ranges.push({ start, end: Math.min(start + pages - 1, totalPages - 1), name: `학생${i + 1}` });
+        }
+      }
+    } else {
+      const pages = splitMode === '1' ? 1 : splitMode === '2' ? 2 : Math.max(1, parseInt(pagesPerStudent) || 1);
+      for (let i = 0; i < count; i++) {
+        const start = i * pages;
+        if (start >= totalPages) break;
+        ranges.push({ start, end: Math.min(start + pages - 1, totalPages - 1), name: `학생${i + 1}` });
+      }
+    }
+
+    const splitResults = [];
+    for (const range of ranges) {
+      const destDoc = await PDFDocument.create();
+      const indices = [];
+      for (let p = range.start; p <= range.end; p++) indices.push(p);
+      if (!indices.length) continue;
+      const copied = await destDoc.copyPagesFrom(srcDoc, indices);
+      copied.forEach(p => destDoc.addPage(p));
+      const bytes = await destDoc.save();
+      splitResults.push({
+        name: range.name,
+        base64: Buffer.from(bytes).toString('base64'),
+        pageRange: `${range.start + 1}~${range.end + 1}페이지`
+      });
+    }
+
+    res.json({ students: splitResults });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`서버 실행중: http://localhost:${PORT}`);

@@ -120,6 +120,12 @@
   .result-tab.active{background:var(--accent-light);color:var(--accent)}
   .result-tab:not(:last-child){border-right:1px solid var(--border)}
   .result-pane{display:none}.result-pane.active{display:block}
+  .upload-tabs{display:flex;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:18px;width:fit-content}
+  .upload-tab{padding:7px 18px;font-size:13px;font-weight:500;color:var(--text2);background:var(--surface);border:none;cursor:pointer;transition:background .15s}
+  .upload-tab.active{background:var(--accent-light);color:var(--accent)}
+  .upload-tab:not(:last-child){border-right:1px solid var(--border)}
+  .split-radio-group{display:flex;flex-direction:column;gap:8px;margin-top:4px}
+  .split-radio-label{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:400;color:var(--text);cursor:pointer;margin-bottom:0}
   @media(max-width:700px){.layout{grid-template-columns:1fr}.sidebar{height:auto;position:static}.main{padding:24px 16px}}
 </style>
 </head>
@@ -254,19 +260,89 @@
     <!-- 3. 답안 업로드 -->
     <div class="page" id="page2">
       <div class="page-title">답안 업로드</div>
-      <div class="page-sub">학생 답안 PDF를 여러 개 한꺼번에 업로드하세요. 파일명이 학생 이름으로 사용됩니다.</div>
-      <div class="card">
-        <div class="card-title">학생 답안 PDF</div>
-        <div class="drop-zone" id="answerDrop" ondragover="onDrag(event,'answerDrop',true)" ondragleave="onDrag(event,'answerDrop',false)" ondrop="onDropAnswers(event)">
-          <input type="file" accept=".pdf" id="answerInput" multiple onchange="onAnswersSelect(event)">
-          <div class="drop-icon">📂</div>
-          <div class="drop-title">답안 PDF를 끌어다 놓거나 클릭</div>
-          <div class="drop-sub">여러 파일 동시 선택 가능</div>
-        </div>
-        <div id="answerFileList" class="file-list"></div>
+      <div class="page-sub">업로드 방식을 선택하세요</div>
+
+      <div class="upload-tabs">
+        <button class="upload-tab active" id="uploadTab0" onclick="switchUploadTab(0)">개별 업로드</button>
+        <button class="upload-tab" id="uploadTab1" onclick="switchUploadTab(1)">통합 PDF</button>
       </div>
-      <div id="answerCount" style="font-size:12px;color:var(--text3);text-align:right;margin-top:-6px;margin-bottom:8px"></div>
-      <div class="notice notice-info" style="margin-bottom:14px">미응시 학생은 업로드하지 않아도 됩니다. 채점 완료 후 엑셀에서 미응시점수 열을 활용하세요.</div>
+
+      <!-- 개별 업로드 -->
+      <div id="upane0">
+        <p style="font-size:12px;color:var(--text3);margin-bottom:12px;margin-top:-4px">파일명이 학생 이름으로 사용됩니다. 여러 파일을 한번에 선택할 수 있습니다.</p>
+        <div class="card">
+          <div class="card-title">학생 답안 PDF</div>
+          <div class="drop-zone" id="answerDrop" ondragover="onDrag(event,'answerDrop',true)" ondragleave="onDrag(event,'answerDrop',false)" ondrop="onDropAnswers(event)">
+            <input type="file" accept=".pdf" id="answerInput" multiple onchange="onAnswersSelect(event)">
+            <div class="drop-icon">📂</div>
+            <div class="drop-title">답안 PDF를 끌어다 놓거나 클릭</div>
+            <div class="drop-sub">여러 파일 동시 선택 가능</div>
+          </div>
+          <div id="answerFileList" class="file-list"></div>
+        </div>
+        <div id="answerCount" style="font-size:12px;color:var(--text3);text-align:right;margin-top:-6px;margin-bottom:8px"></div>
+        <div class="notice notice-info" style="margin-bottom:14px">미응시 학생은 업로드하지 않아도 됩니다. 채점 완료 후 엑셀에서 미응시점수 열을 활용하세요.</div>
+      </div>
+
+      <!-- 통합 PDF -->
+      <div id="upane1" style="display:none">
+        <p style="font-size:12px;color:var(--text3);margin-bottom:12px;margin-top:-4px">여러 학생의 답안이 합쳐진 PDF를 업로드하면 자동 분할 후 채점합니다.</p>
+        <div class="card">
+          <div class="card-title">통합 PDF 업로드</div>
+          <div class="drop-zone" id="combinedDrop" ondragover="onDrag(event,'combinedDrop',true)" ondragleave="onDrag(event,'combinedDrop',false)" ondrop="onDropCombined(event)">
+            <input type="file" accept=".pdf" id="combinedInput" onchange="onCombinedSelect(event)">
+            <div class="drop-icon">📑</div>
+            <div class="drop-title">통합 PDF를 끌어다 놓거나 클릭</div>
+            <div class="drop-sub">단일 파일 · PDF만 허용</div>
+          </div>
+          <div id="combinedFileInfo" style="display:none" class="file-loaded">
+            <span style="font-size:18px">📑</span>
+            <span class="file-loaded-name" id="combinedFileName"></span>
+            <span class="file-loaded-size" id="combinedFileSize"></span>
+            <button class="file-remove" onclick="removeCombinedPdf()">×</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">분할 설정</div>
+          <div class="form-row">
+            <label>학생 수 <span style="font-weight:400;color:var(--text3)">(1~50)</span></label>
+            <input type="number" id="combinedStudentCount" min="1" max="50" value="1" style="max-width:160px">
+          </div>
+          <div class="form-row" style="margin-bottom:0">
+            <label>분할 방식</label>
+            <div class="split-radio-group">
+              <label class="split-radio-label">
+                <input type="radio" name="splitMode" value="auto" checked onchange="onSplitModeChange()">
+                자동 <span style="color:var(--text3);font-size:12px">(AI가 답안 경계 분석)</span>
+              </label>
+              <label class="split-radio-label">
+                <input type="radio" name="splitMode" value="1" onchange="onSplitModeChange()">
+                1페이지 <span style="color:var(--text3);font-size:12px">(학생당 1페이지)</span>
+              </label>
+              <label class="split-radio-label">
+                <input type="radio" name="splitMode" value="2" onchange="onSplitModeChange()">
+                2페이지 <span style="color:var(--text3);font-size:12px">(학생당 2페이지)</span>
+              </label>
+              <label class="split-radio-label">
+                <input type="radio" name="splitMode" value="manual" onchange="onSplitModeChange()">
+                수동 입력 <span style="color:var(--text3);font-size:12px">(학생당 페이지 수 직접 입력)</span>
+                <input type="number" id="manualPagesInput" min="1" max="20" value="1" placeholder="페이지 수" style="max-width:80px;display:none;margin-left:4px">
+              </label>
+            </div>
+          </div>
+        </div>
+        <button class="btn btn-primary btn-full" id="splitBtn" onclick="splitCombinedPdf()" disabled>
+          <span id="splitBtnTxt">분할하기</span>
+        </button>
+        <div id="splitNotice" style="margin-top:8px"></div>
+        <div id="splitResultArea" style="display:none;margin-top:12px">
+          <div class="card">
+            <div class="card-title">분할 결과 <span id="splitResultCount" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:12px"></span></div>
+            <div id="splitResultList" class="file-list"></div>
+          </div>
+        </div>
+      </div>
+
       <div class="btn-row"><button class="btn" onclick="goTab(1)">← 이전</button><button class="btn btn-primary" id="startBtn" onclick="startGrading()" disabled>채점 시작 →</button></div>
     </div>
 
@@ -324,6 +400,7 @@ let regradeCount = 0;
 let regradeHistory = [];
 let achievementBase64 = null, achievementMime = 'application/pdf', achievementStandard = '';
 let modelAnswerPdfBase64 = null;
+let currentUploadTab = 0, combinedPdfBase64 = null;
 
 function goTab(i) {
   document.querySelectorAll('.page').forEach((p, j) => p.classList.toggle('active', i === j));
@@ -456,10 +533,11 @@ function loadAnswerFiles(files) {
   }
 }
 function renderAnswerList() {
-  document.getElementById('answerFileList').innerHTML = answerFiles.map((f, i) =>
-    `<div class="file-item"><span style="font-size:14px">📄</span><span class="file-item-name">${f.name}</span><span class="file-item-size">${fmtSize(f.size)}</span><button onclick="removeAnswer(${i})" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:14px;padding:0 2px">×</button></div>`
+  const individual = answerFiles.map((f, i) => ({ ...f, idx: i })).filter(f => !f.fromSplit);
+  document.getElementById('answerFileList').innerHTML = individual.map(f =>
+    `<div class="file-item"><span style="font-size:14px">📄</span><span class="file-item-name">${f.name}</span><span class="file-item-size">${fmtSize(f.size)}</span><button onclick="removeAnswer(${f.idx})" style="background:none;border:none;cursor:pointer;color:var(--text3);font-size:14px;padding:0 2px">×</button></div>`
   ).join('');
-  document.getElementById('answerCount').textContent = answerFiles.length > 0 ? `${answerFiles.length}개 파일 선택됨` : '';
+  document.getElementById('answerCount').textContent = individual.length > 0 ? `${individual.length}개 파일 선택됨` : '';
   document.getElementById('startBtn').disabled = answerFiles.length === 0;
 }
 function removeAnswer(i) { answerFiles.splice(i, 1); renderAnswerList(); }
@@ -762,6 +840,91 @@ function exportExcel() {
 function today() { return new Date().toISOString().slice(0, 10).replace(/-/g, ''); }
 function fmtSize(b) { return b > 1048576 ? (b / 1048576).toFixed(1) + 'MB' : (b / 1024).toFixed(0) + 'KB'; }
 function showNotice(id, type, msg) { document.getElementById(id).innerHTML = `<div class="notice notice-${type === 'err' ? 'err' : 'ok'}">${msg}</div>`; }
+
+// ── 업로드 탭 전환 ──
+function switchUploadTab(i) {
+  currentUploadTab = i;
+  document.getElementById('uploadTab0').classList.toggle('active', i === 0);
+  document.getElementById('uploadTab1').classList.toggle('active', i === 1);
+  document.getElementById('upane0').style.display = i === 0 ? '' : 'none';
+  document.getElementById('upane1').style.display = i === 1 ? '' : 'none';
+}
+
+// ── 통합 PDF ──
+function onDropCombined(e) {
+  e.preventDefault();
+  document.getElementById('combinedDrop').classList.remove('over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type === 'application/pdf') loadCombinedPdf(f);
+}
+function onCombinedSelect(e) { const f = e.target.files[0]; if (f) loadCombinedPdf(f); }
+function loadCombinedPdf(f) {
+  const r = new FileReader();
+  r.onload = ev => {
+    combinedPdfBase64 = ev.target.result.split(',')[1];
+    document.getElementById('combinedFileName').textContent = f.name;
+    document.getElementById('combinedFileSize').textContent = fmtSize(f.size);
+    document.getElementById('combinedFileInfo').style.display = 'flex';
+    document.getElementById('splitBtn').disabled = false;
+    document.getElementById('splitNotice').innerHTML = '';
+    document.getElementById('splitResultArea').style.display = 'none';
+    answerFiles = answerFiles.filter(a => !a.fromSplit);
+    document.getElementById('startBtn').disabled = true;
+  };
+  r.readAsDataURL(f);
+}
+function removeCombinedPdf() {
+  combinedPdfBase64 = null;
+  document.getElementById('combinedFileInfo').style.display = 'none';
+  document.getElementById('combinedInput').value = '';
+  document.getElementById('splitBtn').disabled = true;
+  document.getElementById('splitResultArea').style.display = 'none';
+  answerFiles = answerFiles.filter(a => !a.fromSplit);
+  document.getElementById('startBtn').disabled = answerFiles.length === 0;
+}
+function onSplitModeChange() {
+  const mode = document.querySelector('input[name="splitMode"]:checked').value;
+  document.getElementById('manualPagesInput').style.display = mode === 'manual' ? 'inline-block' : 'none';
+}
+async function splitCombinedPdf() {
+  if (!combinedPdfBase64) { alert('통합 PDF를 먼저 업로드해주세요.'); return; }
+  const studentCount = parseInt(document.getElementById('combinedStudentCount').value);
+  if (!studentCount || studentCount < 1 || studentCount > 50) { alert('학생 수를 1~50 사이로 입력해주세요.'); return; }
+  const splitMode = document.querySelector('input[name="splitMode"]:checked').value;
+  const pagesPerStudent = parseInt(document.getElementById('manualPagesInput').value) || 1;
+  const btn = document.getElementById('splitBtn');
+  const btnTxt = document.getElementById('splitBtnTxt');
+  btn.disabled = true;
+  btnTxt.innerHTML = '<div class="spinner"></div> 분할 중...';
+  document.getElementById('splitNotice').innerHTML = '';
+  try {
+    const res = await fetch('/api/split-pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pdfBase64: combinedPdfBase64, studentCount, splitMode, pagesPerStudent })
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    const students = data.students || [];
+    if (!students.length) throw new Error('분할 결과가 없습니다');
+    answerFiles = answerFiles.filter(a => !a.fromSplit);
+    students.forEach(s => {
+      answerFiles.push({ name: s.name, size: Math.round(s.base64.length * 0.75), base64: s.base64, fromSplit: true, pageRange: s.pageRange });
+    });
+    document.getElementById('splitResultCount').textContent = `— ${students.length}명`;
+    document.getElementById('splitResultList').innerHTML = students.map(s =>
+      `<div class="file-item"><span style="font-size:14px">📄</span><span class="file-item-name">${s.name}</span><span class="file-item-size">${s.pageRange}</span></div>`
+    ).join('');
+    document.getElementById('splitResultArea').style.display = 'block';
+    showNotice('splitNotice', 'ok', `${students.length}명 분할 완료 · 채점 시작 버튼을 눌러 채점하세요.`);
+    document.getElementById('startBtn').disabled = false;
+  } catch (e) {
+    showNotice('splitNotice', 'err', '분할 실패: ' + e.message);
+  } finally {
+    btn.disabled = !combinedPdfBase64;
+    btnTxt.textContent = '다시 분할하기';
+  }
+}
 
 // 버전 표시
 fetch('/sw.js')
