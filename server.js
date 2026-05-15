@@ -293,6 +293,7 @@ app.post('/api/split-pdf', async (req, res) => {
       let result;
       try {
         result = await callGemini(URL_FLASH, parts, true);
+        console.log('Gemini 분할 결과:', JSON.stringify(result));
       } catch (e) {
         console.log('자동 분할 Gemini 오류:', e.message);
         result = { students: [] };
