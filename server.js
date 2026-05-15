@@ -271,7 +271,14 @@ app.post('/api/split-pdf', async (req, res) => {
       const prompt = `이 PDF는 ${count}명 학생의 답안이 순서대로 합쳐진 통합 PDF입니다.
 총 페이지 수: ${totalPages}페이지.
 각 학생의 답안이 몇 페이지부터 몇 페이지까지인지 경계를 분석하세요.
-학생 이름/번호가 PDF에 명시되어 있으면 추출하고, 없으면 null을 넣으세요.
+
+[학생 식별 정보 추출 지침]
+- 표지, 첫 페이지, 머리글, 여백 등 PDF 전체에서 학생 식별 정보를 적극적으로 탐색하세요.
+- 이름(한글/영문), 학번, 출석번호, 번호 등 모든 형태의 식별 정보를 확인하세요.
+- 이름이 명확히 있으면 name 필드에 그 이름을 넣으세요.
+- 이름 없이 번호만 있으면 "N번" 형태로 넣으세요 (예: "3번").
+- 어떤 식별 정보도 찾을 수 없을 때만 null을 반환하세요.
+
 모든 페이지(1~${totalPages})가 빠짐없이 포함되어야 합니다.
 반드시 JSON만 출력하세요 (pageNumber는 1부터 시작):
 {"students":[{"name":"이름 또는 null","startPage":1,"endPage":2}]}`;
@@ -293,7 +300,7 @@ app.post('/api/split-pdf', async (req, res) => {
         ranges = students.map((s, i) => ({
           start: Math.max(0, (s.startPage || 1) - 1),
           end: Math.min(totalPages - 1, (s.endPage || s.startPage || 1) - 1),
-          name: s.name || `학생${i + 1}`
+          name: s.name || null
         }));
       } else {
         const pages = Math.ceil(totalPages / count);
