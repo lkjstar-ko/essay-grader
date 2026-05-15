@@ -214,17 +214,17 @@ app.post('/api/grade', async (req, res) => {
     }
     setechParts.push({ text: buildSetechPrompt(question, achievementSection, setechLength) });
 
-    const gradeResult = await callGemini(URL_FLASH, gradeParts, true);
-    gradeResult.setech = '';
+    const [gradeResult, setechText] = await Promise.allSettled([
+      callGemini(URL_FLASH, gradeParts, true),
+      callGemini(URL_FLASH, setechParts, false)
+    ]);
 
-    try {
-      const setechText = await callGemini(URL_FLASH, setechParts, false);
-      gradeResult.setech = typeof setechText === 'string' ? setechText : '';
-    } catch (e) {
-      console.log('세특 작성 실패:', e.message);
-    }
+    if (gradeResult.status === 'rejected') throw new Error(gradeResult.reason?.message || '채점 실패');
+    const result = gradeResult.value;
+    result.setech = setechText.status === 'fulfilled' && typeof setechText.value === 'string'
+      ? setechText.value : '';
 
-    res.json(gradeResult);
+    res.json(result);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -293,7 +293,6 @@ app.post('/api/split-pdf', async (req, res) => {
       let result;
       try {
         result = await callGemini(URL_FLASH, parts, true);
-        console.log('Gemini 분할 결과:', JSON.stringify(result));
       } catch (e) {
         console.log('자동 분할 Gemini 오류:', e.message);
         result = { students: [] };
@@ -350,7 +349,6 @@ ${firstPageList}
           { text: namePrompt }
         ];
         const nameResult = await callGemini(URL_FLASH, nameParts, true);
-        console.log('수동 분할 이름 추출 결과:', JSON.stringify(nameResult));
         const names = nameResult.names || [];
         names.forEach((rawName, i) => {
           if (!ranges[i]) return;
