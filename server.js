@@ -11,6 +11,15 @@ const BASE  = 'https://generativelanguage.googleapis.com/v1beta/models/';
 const URL_PRO   = `${BASE}gemini-2.5-pro:generateContent?key=${KEY}`;
 const URL_FLASH = `${BASE}gemini-2.5-flash:generateContent?key=${KEY}`;
 
+const rubricCache = new Map();
+function resolveRubric(rubricId, pdfBase64) {
+  if (pdfBase64) {
+    if (rubricId) rubricCache.set(rubricId, pdfBase64);
+    return pdfBase64;
+  }
+  return rubricId ? (rubricCache.get(rubricId) ?? null) : null;
+}
+
 async function callGemini(url, parts, jsonMode) {
   const config = jsonMode
     ? { temperature: 0.1, responseMimeType: 'application/json' }
@@ -178,7 +187,8 @@ ${achievementSection}[세특 작성 원칙]
 }
 
 function validateGradeBody(body) {
-  if (!body.pdfBase64 || !body.rubrics?.length) return '필수 항목 누락';
+  if (!body.rubrics?.length) return '필수 항목 누락';
+  if (!body.pdfBase64 && !body.rubricId) return '루브릭 PDF 필요';
   if (!body.answerPdfBase64) return '답안 PDF 필요';
   return null;
 }
@@ -190,10 +200,13 @@ app.post('/api/grade', async (req, res) => {
 
   try {
     const {
-      pdfBase64, answerPdfBase64, question, modelAnswer, studentName,
+      pdfBase64 = null, rubricId = null, answerPdfBase64, question, modelAnswer, studentName,
       rubrics, achievementStandard = '', setechLength = 500,
       modelAnswerPdfBase64 = null
     } = req.body;
+
+    const rubricData = resolveRubric(rubricId, pdfBase64);
+    if (!rubricData) return res.status(400).json({ error: '루브릭 PDF 필요 (캐시 만료)' });
 
     const built = buildGradePrompt(rubrics, question, modelAnswer, studentName);
 
@@ -202,7 +215,7 @@ app.post('/api/grade', async (req, res) => {
       : '';
 
     const gradeParts = [
-      { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } },
+      { inline_data: { mime_type: 'application/pdf', data: rubricData } },
       { inline_data: { mime_type: 'application/pdf', data: answerPdfBase64 } },
       { text: built.prompt }
     ];
@@ -236,11 +249,13 @@ app.post('/api/regrade', async (req, res) => {
   if (err) return res.status(400).json({ error: err });
 
   try {
-    const { pdfBase64, answerPdfBase64, question, modelAnswer, studentName, rubrics } = req.body;
+    const { pdfBase64 = null, rubricId = null, answerPdfBase64, question, modelAnswer, studentName, rubrics } = req.body;
+    const rubricData = resolveRubric(rubricId, pdfBase64);
+    if (!rubricData) return res.status(400).json({ error: '루브릭 PDF 필요 (캐시 만료)' });
     const built = buildGradePrompt(rubrics, question, modelAnswer, studentName);
 
     const gradeParts = [
-      { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } },
+      { inline_data: { mime_type: 'application/pdf', data: rubricData } },
       { inline_data: { mime_type: 'application/pdf', data: answerPdfBase64 } },
       { text: built.prompt }
     ];

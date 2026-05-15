@@ -397,7 +397,7 @@
 </div>
 
 <script>
-let rubricBase64 = null, parsedRubrics = [], totalMin = 0, totalMax = 0;
+let rubricBase64 = null, rubricId = null, parsedRubrics = [], totalMin = 0, totalMax = 0;
 let answerFiles = [], gradingResults = [];
 let regradeCount = 0;
 let regradeHistory = [];
@@ -422,6 +422,7 @@ function loadRubricFile(f) {
   const r = new FileReader();
   r.onload = ev => {
     rubricBase64 = ev.target.result.split(',')[1];
+    rubricId = crypto.randomUUID();
     document.getElementById('rubricFileName').textContent = f.name;
     document.getElementById('rubricFileSize').textContent = fmtSize(f.size);
     document.getElementById('rubricFileInfo').style.display = 'flex';
@@ -431,7 +432,7 @@ function loadRubricFile(f) {
   r.readAsDataURL(f);
 }
 function removeRubric() {
-  rubricBase64 = null; parsedRubrics = []; totalMin = 0; totalMax = 0;
+  rubricBase64 = null; rubricId = null; parsedRubrics = []; totalMin = 0; totalMax = 0;
   document.getElementById('rubricFileInfo').style.display = 'none';
   document.getElementById('rubricInput').value = '';
   document.getElementById('parseBtn').disabled = true;
@@ -568,39 +569,48 @@ async function startGrading() {
     `<div class="file-item" id="gi_${i}"><span style="font-size:14px">📄</span><span class="file-item-name">${f.name}</span><span class="file-item-status s-wait" id="gs_${i}">대기중</span></div>`
   ).join('');
 
-  for (let i = 0; i < answerFiles.length; i++) {
-    updateProgress(i, total);
+  const CONCURRENCY = 2;
+  const results = new Array(total).fill(null);
+  let doneCount = 0, rubricCached = false;
+  updateProgress(0, total);
+
+  async function gradeOne(i) {
     const gs = document.getElementById(`gs_${i}`);
     gs.textContent = '채점 중...'; gs.className = 'file-item-status s-run';
-
-    const setechTimer = setTimeout(() => {
-      if (gs.className.includes('s-run')) gs.textContent = '세특 작성 중...';
-    }, 15000);
-
-    const body = JSON.stringify({
-      pdfBase64: rubricBase64, answerPdfBase64: answerFiles[i].base64,
-      question, modelAnswer, studentName: answerFiles[i].name,
-      rubrics: parsedRubrics, achievementStandard, setechLength, modelAnswerPdfBase64
-    });
-
+    const timer = setTimeout(() => { if (gs.className.includes('s-run')) gs.textContent = '세특 작성 중...'; }, 15000);
     try {
+      const body = JSON.stringify({
+        rubricId, pdfBase64: rubricCached ? undefined : rubricBase64,
+        answerPdfBase64: answerFiles[i].base64,
+        question, modelAnswer, studentName: answerFiles[i].name,
+        rubrics: parsedRubrics, achievementStandard, setechLength, modelAnswerPdfBase64
+      });
       const res = await fetch('/api/grade', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
       const data = await res.json();
-      clearTimeout(setechTimer);
+      clearTimeout(timer);
       if (data.error) throw new Error(data.error);
       data.studentName = answerFiles[i].name;
-      gradingResults.push({ ok: true, data });
-      const hasSe = data.setech?.length > 0;
-      gs.textContent = `✓ ${data.total}/${totalMax}점 (${data.grade})${hasSe ? '' : '  세특 없음'}`;
+      results[i] = { ok: true, data };
+      gs.textContent = `✓ ${data.total}/${totalMax}점 (${data.grade})${data.setech?.length ? '' : '  세특 없음'}`;
       gs.className = 'file-item-status s-done';
     } catch (e) {
-      clearTimeout(setechTimer);
-      gradingResults.push({ ok: false, name: answerFiles[i].name, error: e.message });
+      clearTimeout(timer);
+      results[i] = { ok: false, name: answerFiles[i].name, error: e.message };
       gs.textContent = '오류: ' + e.message.slice(0, 20);
       gs.className = 'file-item-status s-err';
     }
+    doneCount++;
+    updateProgress(doneCount, total);
   }
-  updateProgress(total, total);
+
+  for (let i = 0; i < total; i += CONCURRENCY) {
+    const batch = [];
+    for (let j = i; j < Math.min(i + CONCURRENCY, total); j++) batch.push(gradeOne(j));
+    await Promise.allSettled(batch);
+    rubricCached = true;
+  }
+
+  gradingResults = results.filter(r => r !== null);
   const okCount = gradingResults.filter(r => r.ok).length;
   document.getElementById('resultSub').textContent = `채점 완료 — ${okCount}/${total}명 성공`;
   document.getElementById('nav3').classList.add('done');
@@ -625,15 +635,18 @@ async function startRegrade() {
   const question = document.getElementById('question').value.trim();
   const modelAnswer = document.getElementById('modelAnswer').value.trim();
   const newResults = [];
+  let firstRegrade = true;
 
   for (const r of ok) {
     const file = answerFiles.find(f => f.name === r.data.studentName);
     if (!file) continue;
     try {
       const body = JSON.stringify({
-        pdfBase64: rubricBase64, answerPdfBase64: file.base64,
+        rubricId, pdfBase64: firstRegrade ? rubricBase64 : undefined,
+        answerPdfBase64: file.base64,
         question, modelAnswer, studentName: r.data.studentName, rubrics: parsedRubrics
       });
+      firstRegrade = false;
       const res = await fetch('/api/regrade', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
