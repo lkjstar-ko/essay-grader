@@ -324,6 +324,36 @@ app.post('/api/split-pdf', async (req, res) => {
         if (start >= totalPages) break;
         ranges.push({ start, end: Math.min(start + pages - 1, totalPages - 1), name: `학생${i + 1}` });
       }
+
+      // 이름만 별도 추출 (페이지 경계는 수동 계산값 유지)
+      try {
+        const namePrompt = `이 PDF는 ${count}명 학생의 답안이 순서대로 합쳐진 통합 PDF입니다.
+페이지 경계 분석은 필요 없습니다. 학생 이름만 순서대로 추출하세요.
+
+[이름 추출 방법 - 순서대로 시도]
+1. 상단 표나 헤더에 "이름" 또는 "성명" 레이블이 있으면 그 옆 값 추출
+2. 페이지 상단에 2~4글자 한글 이름처럼 보이는 텍스트 추출
+3. "번호", "학번", "No" 등 번호 필드 근처의 한글 이름 추출
+4. 찾지 못한 학생은 null
+
+반드시 JSON만 출력하세요:
+{"names":["홍길동","김철수",null]}`;
+
+        const nameParts = [
+          { inline_data: { mime_type: 'application/pdf', data: pdfBase64 } },
+          { text: namePrompt }
+        ];
+        const nameResult = await callGemini(URL_FLASH, nameParts, true);
+        console.log('수동 분할 이름 추출 결과:', JSON.stringify(nameResult));
+        const names = nameResult.names || [];
+        names.forEach((rawName, i) => {
+          if (!ranges[i]) return;
+          const name = rawName === null || rawName === 'null' || !rawName ? null : String(rawName).trim();
+          if (name) ranges[i].name = name;
+        });
+      } catch (e) {
+        console.log('수동 분할 이름 추출 오류:', e.message);
+      }
     }
 
     const splitResults = [];
