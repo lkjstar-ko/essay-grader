@@ -918,13 +918,17 @@ async function splitCombinedPdf() {
     if (!students.length) throw new Error('분할 결과가 없습니다');
     answerFiles = answerFiles.filter(a => !a.fromSplit);
     students.forEach((s, i) => {
-      const finalName = existingNames[i] || s.name || `학생${i + 1}`;
+      const existing = existingNames[i] || '';
+      const userEdited = existing && !/^학생\d+$/.test(existing);
+      const finalName = userEdited ? existing : s.name || `학생${i + 1}`;
       answerFiles.push({ name: finalName, size: Math.round(s.base64.length * 0.75), base64: s.base64, fromSplit: true, pageRange: s.pageRange });
     });
     const splitOffset = answerFiles.length - students.length;
     document.getElementById('splitResultCount').textContent = `— ${students.length}명`;
     document.getElementById('splitResultList').innerHTML = students.map((s, i) => {
-      const displayName = existingNames[i] || s.name || `학생${i + 1}`;
+      const existing = existingNames[i] || '';
+      const userEdited = existing && !/^학생\d+$/.test(existing);
+      const displayName = userEdited ? existing : s.name || `학생${i + 1}`;
       return `<div class="file-item"><span style="font-size:14px">📄</span><input class="split-name-input" data-idx="${splitOffset + i}" value="${displayName}" oninput="updateSplitName(this)"><span class="file-item-size">${s.pageRange}</span></div>`;
     }).join('');
     document.getElementById('splitResultArea').style.display = 'block';
