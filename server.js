@@ -294,6 +294,7 @@ app.post('/api/split-pdf', async (req, res) => {
       try {
         result = await callGemini(URL_FLASH, parts, true);
       } catch (e) {
+        console.log('자동 분할 Gemini 오류:', e.message);
         result = { students: [] };
       }
       const students = result.students || [];
@@ -302,7 +303,10 @@ app.post('/api/split-pdf', async (req, res) => {
         ranges = students.map((s, i) => ({
           start: Math.max(0, (s.startPage || 1) - 1),
           end: Math.min(totalPages - 1, (s.endPage || s.startPage || 1) - 1),
-          name: s.name || null
+          name: s.name === null ||
+                s.name === 'null' ||
+                s.name === '이름 또는 null' ||
+                !s.name ? null : s.name.trim()
         }));
       } else {
         const pages = Math.ceil(totalPages / count);
@@ -331,7 +335,7 @@ app.post('/api/split-pdf', async (req, res) => {
       copied.forEach(p => destDoc.addPage(p));
       const bytes = await destDoc.save();
       splitResults.push({
-        name: range.name,
+        name: range.name || `학생${splitResults.length + 1}`,
         base64: Buffer.from(bytes).toString('base64'),
         pageRange: `${range.start + 1}~${range.end + 1}페이지`
       });
